@@ -1,3 +1,4 @@
+// src/pages/DashboardPage.tsx
 import React, { useState } from 'react';
 import { DashboardSidebar } from '../components/dashboard/DashboardSidebar';
 import { DashboardHeader } from '../components/dashboard/DashboardHeader';
@@ -12,23 +13,25 @@ interface DashboardPageProps {
 
 export function DashboardPage({ onNavigate }: DashboardPageProps) {
   const [activeSection, setActiveSection] = useState('dashboard');
-  const [selectedStock, setSelectedStock] = useState('RELIANCE');
+  // selectedStock format: "SYMBOL::EXCHANGE" e.g. "RELIANCE::NSE"
+  const [selectedStock, setSelectedStock] = useState("RELIANCE::NSE");
 
-  const handleSearch = (query: string) => {
-    if (query.trim()) {
-      setSelectedStock(query.toUpperCase());
-    }
-  };
+function handleSearch(symbol: string, exchange: "NSE"|"BSE") {
+  setSelectedStock(`${symbol}::${exchange}`);
+}
+  
 
-  const handleStockSelect = (symbol: string) => {
-    setSelectedStock(symbol);
-  };
+  // Called by Treemap or other components that pass a key like "RELIANCE::NSE"
+  function handleStockSelect(stockKey: string) {
+    if (!stockKey) return;
+    setSelectedStock(stockKey);
+  }
 
   return (
     <div className="min-h-screen brand-gradient flex">
       {/* Sidebar */}
       <div className="flex-shrink-0">
-        <DashboardSidebar 
+        <DashboardSidebar
           activeSection="dashboard"
           onSectionChange={setActiveSection}
           onNavigate={onNavigate}
@@ -38,7 +41,6 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         <DashboardHeader onSearch={handleSearch} />
-        
         <main className="flex-1 p-6 overflow-auto">
           {activeSection === 'dashboard' && (
             <div className="space-y-6">
@@ -46,7 +48,7 @@ export function DashboardPage({ onNavigate }: DashboardPageProps) {
               <IndexCards />
 
               {/* Main Chart */}
-              <MainChart 
+              <MainChart
                 selectedStock={selectedStock}
                 onStockChange={setSelectedStock}
               />

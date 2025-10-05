@@ -1,68 +1,123 @@
-import React, { useState } from 'react';
+// src/components/dashboard/MainChart.tsx
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, CandlestickChart } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 
 interface MainChartProps {
-  selectedStock: string;
-  onStockChange: (stock: string) => void;
+  selectedStock: string;            // format "SYMBOL::EXCHANGE" e.g. "RELIANCE::NSE"
+  onStockChange: (stockKey: string) => void; // expects same format
+}
+
+function getApiBase(): string {
+  try {
+    // Vite-style
+    // @ts-ignore
+    const vite = (typeof window !== "undefined" && (import.meta as any)?.env?.VITE_API_BASE) || null;
+    if (vite) return vite;
+  } catch (_){}
+
+  try {
+    // CRA-style (process may be undefined in Vite)
+    // @ts-ignore
+    if (typeof process !== "undefined" && (process as any).env?.REACT_APP_API_BASE) {
+      // @ts-ignore
+      return (process as any).env.REACT_APP_API_BASE;
+    }
+  } catch (_){}
+
+  // DEV convenience: if running in browser on localhost, default to backend at 8000
+  try {
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      if (host === "localhost" || host === "127.0.0.1") {
+        return "http://localhost:8000";
+      }
+    }
+  } catch (_){}
+
+  // production fallback: same origin
+  return "";
 }
 
 export function MainChart({ selectedStock, onStockChange }: MainChartProps) {
   const [timeRange, setTimeRange] = useState('1m');
-  
+  const [fullData, setFullData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
   const stockChips = ['RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICIBANK', 'SBIN', 'BHARTIARTL'];
   const timeRanges = [
-    { value: '1d', label: '1D' },
-    { value: '5d', label: '5D' },
-    { value: '1m', label: '1M' },
-    { value: '6m', label: '6M' },
-    { value: '1y', label: '1Y' },
-    { value: '2y', label: '2Y' },
-    { value: '3y', label: '3Y' },
-    { value: '5y', label: '5Y' }
+    { value: '1d', label: '1D', days: 1 },
+    { value: '5d', label: '5D', days: 5 },
+    { value: '1m', label: '1M', days: 22 },
+    { value: '6m', label: '6M', days: 22 * 6 },
+    { value: '1y', label: '1Y', days: 252 },
+    { value: '2y', label: '2Y', days: 252 * 2 },
+    { value: '3y', label: '3Y', days: 252 * 3 },
+    { value: '5y', label: '5Y', days: 252 * 5 }
   ];
 
-  // Mock candlestick data
-  const generateMockData = () => {
-    const data = [];
-    let basePrice = 2800;
-    
-    for (let i = 0; i < 50; i++) {
-      const open = basePrice + (Math.random() - 0.5) * 20;
-      const high = open + Math.random() * 30;
-      const low = open - Math.random() * 25;
-      const close = open + (Math.random() - 0.5) * 25;
-      
-      data.push({
-        date: new Date(Date.now() - (49 - i) * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        open: Math.round(open * 100) / 100,
-        high: Math.round(high * 100) / 100,
-        low: Math.round(low * 100) / 100,
-        close: Math.round(close * 100) / 100,
-        volume: Math.floor(Math.random() * 1000000) + 500000
-      });
-      
-      basePrice = close;
+  // parse selectedStock safely
+  const parts = (selectedStock || "RELIANCE::NSE").split("::");
+  const symbol = parts[0] || "RELIANCE";
+  const exchange = (parts[1] || "NSE").toUpperCase();
+
+  useEffect(() => {
+    if (!symbol) return;
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const API_BASE = getApiBase();
+        const base = API_BASE || "";
+        const url = `${base}/api/stock?query=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+          console.warn("stock fetch failed", res.status);
+          setFullData([]);
+          setLoading(false);
+          return;
+        }
+        const j = await res.json();
+        const processed = (j.data || []).map((r: any) => ({
+          date: r.date,
+          open: r.open,
+          high: r.high,
+          low: r.low,
+          close: r.close,
+          volume: r.volume
+        })).filter((row: any) => row && (row.close !== null && row.close !== undefined));
+        setFullData(processed);
+      } catch (err) {
+        console.error("fetch stock error", err);
+        setFullData([]);
+      } finally {
+        setLoading(false);
+      }
     }
-    
-    return data;
-  };
+    fetchData();
+  }, [symbol, exchange]);
 
-  const chartData = generateMockData();
+  const slicedData = useMemo(() => {
+    if (!fullData || fullData.length === 0) return [];
+    const r = timeRanges.find(t => t.value === timeRange);
+    let days = r ? Number(r.days) : 22;
+    if (!Number.isFinite(days) || days <= 0) days = Math.min(22, fullData.length);
+    const start = Math.max(0, fullData.length - days);
+    const slice = fullData.slice(start);
+    return slice.map(d => ({ date: d.date, price: d.close }));
+  }, [fullData, timeRange]);
 
-  // Simple line chart representation of candlestick data
-  const lineChartData = chartData.map(item => ({
-    date: item.date,
-    price: item.close
-  }));
-
-  const currentPrice = chartData[chartData.length - 1]?.close || 2850;
-  const previousPrice = chartData[chartData.length - 2]?.close || 2835;
-  const priceChange = currentPrice - previousPrice;
-  const priceChangePercent = (priceChange / previousPrice) * 100;
+  const currentPrice = fullData.length ? fullData[fullData.length - 1].close : 0;
+  const previousPrice = fullData.length > 1 ? fullData[fullData.length - 2].close : currentPrice;
+  const priceChange = (currentPrice || 0) - (previousPrice || 0);
+  const priceChangePercent = previousPrice ? (priceChange / previousPrice) * 100 : 0;
   const isPositive = priceChange >= 0;
+
+  function handleChipClick(chipSymbol: string) {
+    const key = `${chipSymbol}::${exchange || "NSE"}`;
+    onStockChange(key);
+  }
 
   return (
     <Card className="glass-card p-6 mb-6">
@@ -71,14 +126,14 @@ export function MainChart({ selectedStock, onStockChange }: MainChartProps) {
         {stockChips.map((stock) => (
           <Badge
             key={stock}
-            variant={selectedStock === stock ? "default" : "outline"}
+            variant={selectedStock?.startsWith(`${stock}::`) ? "default" : "outline"}
             className={`cursor-pointer transition-colors ${
-              selectedStock === stock
+              selectedStock?.startsWith(`${stock}::`)
                 ? 'bg-accent-teal text-white border-accent-teal'
                 : 'border-white/20 text-neutral-text hover:border-accent-teal hover:text-accent-teal'
             }`}
-            onClick={() => onStockChange(stock)}
-            style={selectedStock === stock ? { backgroundColor: 'var(--accent-teal)' } : {}}
+            onClick={() => handleChipClick(stock)}
+            style={selectedStock?.startsWith(`${stock}::`) ? { backgroundColor: 'var(--accent-teal)' } : {}}
           >
             {stock}
           </Badge>
@@ -89,9 +144,9 @@ export function MainChart({ selectedStock, onStockChange }: MainChartProps) {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 space-y-4 sm:space-y-0">
         <div>
           <h2 className="text-2xl text-white font-semibold mb-1">
-            {selectedStock} - ₹{currentPrice.toFixed(2)}
+            {symbol} - ₹{(currentPrice || 0).toFixed(2)}
           </h2>
-          <p 
+          <p
             className="text-lg flex items-center space-x-2"
             style={{ color: isPositive ? 'var(--success-green)' : 'var(--error-red)' }}
           >
@@ -123,21 +178,21 @@ export function MainChart({ selectedStock, onStockChange }: MainChartProps) {
       {/* Chart */}
       <div className="h-96 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={lineChartData}>
+          <LineChart data={slicedData}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(221, 232, 245, 0.1)" />
-            <XAxis 
-              dataKey="date" 
+            <XAxis
+              dataKey="date"
               stroke="rgba(221, 232, 245, 0.6)"
               fontSize={12}
             />
-            <YAxis 
+            <YAxis
               stroke="rgba(221, 232, 245, 0.6)"
               fontSize={12}
-              domain={['dataMin - 20', 'dataMax + 20']}
+              domain={['auto', 'auto']}
             />
-            <Line 
-              type="monotone" 
-              dataKey="price" 
+            <Line
+              type="monotone"
+              dataKey="price"
               stroke={isPositive ? 'var(--success-green)' : 'var(--error-red)'}
               strokeWidth={2}
               dot={false}
