@@ -29,24 +29,22 @@
             "@radix-ui/react-toggle": "^1.1.2",
             "@radix-ui/react-toggle-group": "^1.1.2",
             "@radix-ui/react-tooltip": "^1.1.8",
-<<<<<<< HEAD
             "axios": "^1.12.2",
-=======
->>>>>>> f76aaac76dec46b8e632f8354ceac9a58eda7fae
+
             "class-variance-authority": "^0.7.1",
             "clsx": "*",
             "cmdk": "^1.1.1",
             "embla-carousel-react": "^8.6.0",
-<<<<<<< HEAD
+
             "firebase": "^12.3.0",
             "input-otp": "^1.4.2",
             "lucide-react": "^0.487.0",
             "next": "^15.5.4",
-=======
+
             "input-otp": "^1.4.2",
             "lightweight-charts": "^4.1.0",
             "lucide-react": "^0.487.0",
->>>>>>> f76aaac76dec46b8e632f8354ceac9a58eda7fae
+
             "next-themes": "^0.4.6",
             "react": "^18.3.1",
             "react-day-picker": "^8.10.1",
@@ -54,21 +52,20 @@
             "react-hook-form": "^7.55.0",
             "react-resizable-panels": "^2.1.7",
             "recharts": "^2.15.2",
-<<<<<<< HEAD
-=======
+
+
             "socket.io-client": "^4.7.5",
->>>>>>> f76aaac76dec46b8e632f8354ceac9a58eda7fae
+
             "sonner": "^2.0.3",
             "tailwind-merge": "*",
             "vaul": "^1.1.2"
       },
       "devDependencies": {
             "@types/node": "^20.10.0",
-<<<<<<< HEAD
+
             "@types/react": "^19.2.0",
             "@types/react-dom": "^19.2.0",
-=======
->>>>>>> f76aaac76dec46b8e632f8354ceac9a58eda7fae
+
             "@vitejs/plugin-react-swc": "^3.10.2",
             "vite": "^6.3.6"
       },
