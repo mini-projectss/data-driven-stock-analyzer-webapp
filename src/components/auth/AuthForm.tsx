@@ -7,13 +7,24 @@ import { Label } from '../ui/label';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 
+import { initializeApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { getFirestore, doc, setDoc } from 'firebase/firestore';
+
 // Firebase config (for reference)
 const firebaseConfig = {
-  apiKey: "AIzaSyCMxdihdCyXTl_OZ3aDZ84LX0sM_no7jWw",
-  authDomain: "data-driven-stock-analyzer.firebaseapp.com",
-  projectId: "data-driven-stock-analyzer",
-  appId: "1:206028689023:web:5c36ab2b9aa30266b0794a"
+  apiKey: "AIzaSyB25MCwq86AcsXhgB_bpR0dmjoeNnIWSMg",
+  authDomain: "stock-analyzer-webapp.firebaseapp.com",
+  projectId: "stock-analyzer-webapp",
+  storageBucket: "stock-analyzer-webapp.firebasestorage.app",
+  messagingSenderId: "94466856705",
+  appId: "1:94466856705:web:acd92d241482c540aaad00"
 };
+
+// Initialize Firebase app and auth only once
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 interface AuthFormProps {
   onAuthSuccess?: () => void;
@@ -23,12 +34,15 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formData, setFormData] = useState({
+    firstName: '',
+    lastName: '',
     username: '',
     email: '',
     password: '',
     confirmPassword: ''
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [firebaseError, setFirebaseError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const passwordStrength = (password: string) => {
@@ -56,8 +70,16 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
   const validateForm = (isSignup: boolean) => {
     const newErrors: Record<string, string> = {};
 
-    if (isSignup && !formData.username) {
-      newErrors.username = 'Username is required';
+    if (isSignup) {
+      if (!formData.firstName) {
+        newErrors.firstName = 'First name is required';
+      }
+      if (!formData.lastName) {
+        newErrors.lastName = 'Last name is required';
+      }
+      if (!formData.username) {
+        newErrors.username = 'Username is required';
+      }
     }
 
     if (!formData.email || !/\S+@\S+\.\S+/.test(formData.email)) {
@@ -77,21 +99,74 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
   };
 
   const handleSubmit = async (isSignup: boolean) => {
+    setFirebaseError(null);
+
     if (!validateForm(isSignup)) return;
 
     setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
+
+    try {
+      if (isSignup) {
+        // Create user with email and password
+        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+        const user = userCredential.user;
+
+        // Save user info to Firestore
+        await setDoc(doc(db, 'users', user.uid), {
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          username: formData.username,
+          email: formData.email,
+          createdAt: new Date(),
+        });
+        await setDoc(doc(db, 'users', user.uid, 'watchlist', 'defaultWatchlist'), {
+          items: [] // An empty array, you can add default items later
+        });
+        // Optionally, you can update user profile with username here if you want:
+        // await updateProfile(auth.currentUser, { displayName: formData.username });
+      } else {
+        // Sign in user
+        await signInWithEmailAndPassword(auth, formData.email, formData.password);
+      }
       setIsLoading(false);
       onAuthSuccess?.();
-    }, 1500);
+    } catch (error: any) {
+      setIsLoading(false);
+
+      // Map Firebase error codes to friendly messages
+      let message = 'Authentication failed';
+      if (error.code) {
+        switch (error.code) {
+          case 'auth/email-already-in-use':
+            message = 'Email is already in use';
+            break;
+          case 'auth/invalid-email':
+            message = 'Invalid email address';
+            break;
+          case 'auth/user-not-found':
+            message = 'User not found';
+            break;
+          case 'auth/wrong-password':
+            message = 'Incorrect password';
+            break;
+          case 'auth/weak-password':
+            message = 'Password is too weak';
+            break;
+          default:
+            message = error.message || message;
+        }
+      }
+      setFirebaseError(message);
+    }
   };
 
   const updateFormData = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+    if (firebaseError) {
+      setFirebaseError(null);
     }
   };
 
@@ -102,19 +177,24 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
           <h1 className="text-2xl text-white mb-2">Welcome Back</h1>
           <p className="text-neutral-text/80">Sign in to your account or create a new one</p>
         </div>
-
+        
         <Tabs defaultValue="login" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 bg-white/10">
-            <TabsTrigger value="login" className="data-[state=active]:bg-accent-teal data-[state=active]:text-white">
+          <TabsList className="grid w-full grid-cols-2 bg-white/10 rounded-md overflow-hidden">
+            <TabsTrigger value="login" className="data-[state=active]:bg-lime-500 data-[state=active]:text-white transition-colors duration-300">
               Login
             </TabsTrigger>
-            <TabsTrigger value="signup" className="data-[state=active]:bg-accent-teal data-[state=active]:text-white">
+            <TabsTrigger value="signup" className="data-[state=active]:bg-lime-500 data-[state=active]:text-white transition-colors duration-300">
               Signup
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="login" className="space-y-4">
             <div className="space-y-4">
+              {firebaseError && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{firebaseError}</AlertDescription>
+                </Alert>
+              )}
               <div>
                 <Label htmlFor="login-email" className="text-neutral-text">Email</Label>
                 <Input
@@ -173,6 +253,44 @@ export function AuthForm({ onAuthSuccess }: AuthFormProps) {
 
           <TabsContent value="signup" className="space-y-4">
             <div className="space-y-4">
+              {firebaseError && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertDescription>{firebaseError}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <Label htmlFor="signup-first-name" className="text-neutral-text">First Name</Label>
+                  <Input
+                    id="signup-first-name"
+                    type="text"
+                    placeholder="Enter your first name"
+                    value={formData.firstName}
+                    onChange={(e) => updateFormData('firstName', e.target.value)}
+                    className="mt-1 bg-input border-white/20 text-white placeholder:text-neutral-text/60"
+                  />
+                 {errors.firstName && (
+                    <p className="text-sm text-error-red mt-1">{errors.firstName}</p>
+                  )}
+                </div>
+
+                <div className="flex-1">
+                  <Label htmlFor="signup-last-name" className="text-neutral-text">Last Name</Label>
+                  <Input
+                    id="signup-last-name"
+                    type="text"
+                    placeholder="Enter your last name"
+                    value={formData.lastName}
+                    onChange={(e) => updateFormData('lastName', e.target.value)}
+                    className="mt-1 bg-input border-white/20 text-white placeholder:text-neutral-text/60"
+                  />
+                  {errors.lastName && (
+                    <p className="text-sm text-error-red mt-1">{errors.lastName}</p>
+                  )}
+                </div>
+              </div>
+
               <div>
                 <Label htmlFor="signup-username" className="text-neutral-text">Username</Label>
                 <Input

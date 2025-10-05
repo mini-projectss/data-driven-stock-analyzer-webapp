@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -7,24 +7,76 @@ import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Badge } from '../ui/badge';
 import { Edit, Save, LogOut, User, Crown } from 'lucide-react';
 
+import { auth, db } from '../../firebase'; // Adjust path to your firebase config
+import { doc, getDoc, setDoc } from "firebase/firestore";
+
 interface UserSummaryCardProps {
   onLogout?: () => void;
 }
 
+interface UserData {
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  membershipTier: 'Free User' | 'Premium User';
+}
+
 export function UserSummaryCard({ onLogout }: UserSummaryCardProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [userData, setUserData] = useState({
-    username: 'john_trader',
-    email: 'john@example.com',
-    firstName: 'John',
-    lastName: 'Doe',
-    membershipTier: 'Premium User' as 'Free User' | 'Premium User'
+  const [userData, setUserData] = useState<UserData>({
+    username: '',
+    email: '',
+    firstName: '',
+    lastName: '',
+    membershipTier: 'Free User'
   });
-  const [editData, setEditData] = useState(userData);
+  const [editData, setEditData] = useState<UserData>(userData);
+  const [loading, setLoading] = useState(true);
 
-  const handleSave = () => {
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (!auth.currentUser) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const userDocRef = doc(db, "users", auth.currentUser.uid);
+        const userDocSnap = await getDoc(userDocRef);
+
+        if (userDocSnap.exists()) {
+          const data = userDocSnap.data() as UserData;
+          setUserData(data);
+          setEditData(data);
+        } else {
+          console.warn("No user profile found!");
+          // Optionally, initialize user profile here or leave blank
+        }
+      } catch (error) {
+        console.error("Error fetching user profile:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserData();
+  }, []);
+
+  const handleSave = async () => {
     setUserData(editData);
     setIsEditing(false);
+
+    if (!auth.currentUser) return;
+
+    try {
+      const userDocRef = doc(db, "users", auth.currentUser.uid);
+      await setDoc(userDocRef, editData, { merge: true });
+      // Optionally add success feedback here
+    } catch (error) {
+      console.error("Error updating profile: ", error);
+      // Optionally add error feedback here
+    }
   };
 
   const handleCancel = () => {
@@ -33,6 +85,7 @@ export function UserSummaryCard({ onLogout }: UserSummaryCardProps) {
   };
 
   const getInitials = () => {
+    if (!userData.firstName || !userData.lastName) return '';
     return (userData.firstName[0] + userData.lastName[0]).toUpperCase();
   };
 
@@ -43,6 +96,14 @@ export function UserSummaryCard({ onLogout }: UserSummaryCardProps) {
   const getTierIcon = () => {
     return userData.membershipTier === 'Premium User' ? Crown : User;
   };
+
+  if (loading) {
+    return (
+      <Card className="glass-card overflow-hidden p-6 text-white">
+        Loading user profile...
+      </Card>
+    );
+  }
 
   return (
     <Card className="glass-card overflow-hidden">
