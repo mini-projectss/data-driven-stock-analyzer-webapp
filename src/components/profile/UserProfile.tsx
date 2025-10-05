@@ -1,28 +1,81 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Avatar, AvatarFallback } from '../ui/avatar';
-import { Edit, Save, LogOut, User } from 'lucide-react';
+import { Edit, Save, LogOut } from 'lucide-react';
+
+import { auth, db } from '../../firebase'; // adjust path if needed
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
 interface UserProfileProps {
   onLogout?: () => void;
 }
 
+interface UserData {
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+}
+
 export function UserProfile({ onLogout }: UserProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [userData, setUserData] = useState({
-    username: 'john_trader',
-    email: 'john@example.com',
-    firstName: 'John',
-    lastName: 'Doe'
-  });
-  const [editData, setEditData] = useState(userData);
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [editData, setEditData] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
 
-  const handleSave = () => {
-    setUserData(editData);
-    setIsEditing(false);
+  // Fetch current user and profile data
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setCurrentUser(user);
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          const data = userDocSnap.data() as UserData;
+          setUserData(data);
+          setEditData(data);
+        } else {
+          // If no profile found, initialize with defaults
+          const defaultData: UserData = {
+            username: user.displayName || '',
+            email: user.email || '',
+            firstName: '',
+            lastName: ''
+          };
+          setUserData(defaultData);
+          setEditData(defaultData);
+          // Optionally save default profile in Firestore
+          await setDoc(userDocRef, defaultData);
+        }
+      } else {
+        setCurrentUser(null);
+        setUserData(null);
+        setEditData(null);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleSave = async () => {
+    if (!currentUser || !editData) return;
+    setLoading(true);
+    try {
+      const userDocRef = doc(db, 'users', currentUser.uid);
+      await setDoc(userDocRef, editData, { merge: true });
+      setUserData(editData);
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      // Optionally show error message
+    }
+    setLoading(false);
   };
 
   const handleCancel = () => {
@@ -31,8 +84,13 @@ export function UserProfile({ onLogout }: UserProfileProps) {
   };
 
   const getInitials = () => {
+    if (!userData) return '';
     return (userData.firstName[0] + userData.lastName[0]).toUpperCase();
   };
+
+  if (loading || !userData || !editData) {
+    return <div className="text-white">Loading profile...</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -41,9 +99,9 @@ export function UserProfile({ onLogout }: UserProfileProps) {
         <div className="flex items-center space-x-6">
           {/* Avatar */}
           <Avatar className="w-20 h-20">
-            <AvatarFallback 
+            <AvatarFallback
               className="text-2xl font-semibold text-white"
-              style={{ 
+              style={{
                 background: 'linear-gradient(135deg, #6c63ff 0%, #302b63 100%)'
               }}
             >
@@ -53,9 +111,7 @@ export function UserProfile({ onLogout }: UserProfileProps) {
 
           {/* User Info */}
           <div className="flex-1">
-            <h1 className="text-3xl text-white font-semibold mb-2">
-              User Profile
-            </h1>
+            <h1 className="text-3xl text-white font-semibold mb-2">User Profile</h1>
             <p className="text-neutral-text/80">
               Manage your account settings and preferences
             </p>
@@ -88,6 +144,7 @@ export function UserProfile({ onLogout }: UserProfileProps) {
                 <Button
                   onClick={handleSave}
                   className="bg-purple-600 hover:bg-purple-700 text-white"
+                  disabled={loading}
                 >
                   <Save className="w-4 h-4 mr-2" />
                   Save
@@ -96,6 +153,7 @@ export function UserProfile({ onLogout }: UserProfileProps) {
                   onClick={handleCancel}
                   variant="outline"
                   className="border-white/20 text-neutral-text hover:border-error-red hover:text-error-red"
+                  disabled={loading}
                 >
                   Cancel
                 </Button>
@@ -107,9 +165,7 @@ export function UserProfile({ onLogout }: UserProfileProps) {
 
       {/* User Details */}
       <Card className="glass-card p-6">
-        <h2 className="text-xl text-white font-semibold mb-6">
-          Account Information
-        </h2>
+        <h2 className="text-xl text-white font-semibold mb-6">Account Information</h2>
 
         <div className="grid md:grid-cols-2 gap-6">
           <div className="space-y-4">
@@ -120,7 +176,7 @@ export function UserProfile({ onLogout }: UserProfileProps) {
               <Input
                 id="username"
                 value={isEditing ? editData.username : userData.username}
-                onChange={(e) => setEditData({...editData, username: e.target.value})}
+                onChange={(e) => setEditData({ ...editData, username: e.target.value })}
                 disabled={!isEditing}
                 className="mt-1 bg-input border-white/20 text-white placeholder:text-neutral-text/60 disabled:opacity-60"
               />
@@ -133,7 +189,7 @@ export function UserProfile({ onLogout }: UserProfileProps) {
               <Input
                 id="firstName"
                 value={isEditing ? editData.firstName : userData.firstName}
-                onChange={(e) => setEditData({...editData, firstName: e.target.value})}
+                onChange={(e) => setEditData({ ...editData, firstName: e.target.value })}
                 disabled={!isEditing}
                 className="mt-1 bg-input border-white/20 text-white placeholder:text-neutral-text/60 disabled:opacity-60"
               />
@@ -152,9 +208,7 @@ export function UserProfile({ onLogout }: UserProfileProps) {
                 disabled
                 className="mt-1 bg-input border-white/20 text-white placeholder:text-neutral-text/60 opacity-60"
               />
-              <p className="text-xs text-neutral-text/60 mt-1">
-                Email cannot be changed
-              </p>
+              <p className="text-xs text-neutral-text/60 mt-1">Email cannot be changed</p>
             </div>
 
             <div>
@@ -164,7 +218,7 @@ export function UserProfile({ onLogout }: UserProfileProps) {
               <Input
                 id="lastName"
                 value={isEditing ? editData.lastName : userData.lastName}
-                onChange={(e) => setEditData({...editData, lastName: e.target.value})}
+                onChange={(e) => setEditData({ ...editData, lastName: e.target.value })}
                 disabled={!isEditing}
                 className="mt-1 bg-input border-white/20 text-white placeholder:text-neutral-text/60 disabled:opacity-60"
               />

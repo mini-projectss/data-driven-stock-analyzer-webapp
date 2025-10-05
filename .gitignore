@@ -27,4 +27,7 @@ yarn-error.log*
 # Environment files (local configs)
 /.env.*
 node_modules
+<<<<<<< HEAD
+=======
 stock-analyzer-backend/__pycache__
+>>>>>>> f76aaac76dec46b8e632f8354ceac9a58eda7fae

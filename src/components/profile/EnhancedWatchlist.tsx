@@ -1,15 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Badge } from '../ui/badge';
 import { Plus, RefreshCw, Trash2, TrendingUp, TrendingDown, Eye, Search } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
+import { Portal } from '../Portal';
+
+import { auth, db } from '../../firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  QuerySnapshot,
+  DocumentData
+} from 'firebase/firestore';
 
 interface WatchlistStock {
   symbol: string;
-  ltp: number; // Last Traded Price
+  ltp: number;
   dailyChange: number;
   dailyChangePercent: number;
   prediction: 'Buy' | 'Sell' | 'Hold';
@@ -17,69 +30,148 @@ interface WatchlistStock {
   addedAt: string;
 }
 
+// Helper to fetch real price data from Yahoo Finance
+async function fetchStockData(symbols: string[]): Promise<Record<string, Partial<WatchlistStock>>> {
+  const baseUrl = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + symbols.join(',');
+  try {
+    const response = await fetch(baseUrl);
+    const data = await response.json();
+    const result: Record<string, Partial<WatchlistStock>> = {};
+    if (data?.quoteResponse?.result) {
+      for (const item of data.quoteResponse.result) {
+        const symbol = item.symbol;
+        result[symbol] = {
+          ltp: item.regularMarketPrice ?? 0,
+          dailyChange: item.regularMarketChange ?? 0,
+          dailyChangePercent: item.regularMarketChangePercent ?? 0,
+        };
+      }
+    }
+    return result;
+  } catch (error) {
+    console.error("Failed to fetch stock data", error);
+    return {};
+  }
+}
+
 export function EnhancedWatchlist() {
   const [newStock, setNewStock] = useState('');
   const [searchFilter, setSearchFilter] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
-  const [watchlistStocks, setWatchlistStocks] = useState<WatchlistStock[]>([
-    {
-      symbol: 'RELIANCE.NS',
-      ltp: 2950.75,
-      dailyChange: 24.55,
-      dailyChangePercent: 0.84,
-      prediction: 'Buy',
-      predictionConfidence: 87.5,
-      addedAt: '2 days ago'
-    },
-    {
-      symbol: 'TCS.NS',
-      ltp: 4125.30,
-      dailyChange: 18.90,
-      dailyChangePercent: 0.46,
-      prediction: 'Buy',
-      predictionConfidence: 82.1,
-      addedAt: '1 week ago'
-    },
-    {
-      symbol: 'INFY.NS',
-      ltp: 1742.20,
-      dailyChange: -8.25,
-      dailyChangePercent: -0.47,
-      prediction: 'Hold',
-      predictionConfidence: 65.3,
-      addedAt: '3 days ago'
-    },
-    {
-      symbol: 'HDFC.NS',
-      ltp: 1685.90,
-      dailyChange: 7.40,
-      dailyChangePercent: 0.44,
-      prediction: 'Buy',
-      predictionConfidence: 75.8,
-      addedAt: '1 day ago'
-    },
-    {
-      symbol: 'ICICIBANK.NS',
-      ltp: 1124.75,
-      dailyChange: -2.55,
-      dailyChangePercent: -0.23,
-      prediction: 'Sell',
-      predictionConfidence: 71.2,
-      addedAt: '5 days ago'
+  const [watchlistStocks, setWatchlistStocks] = useState<WatchlistStock[]>([]);
+  const [stockSuggestions, setStockSuggestions] = useState<string[]>([]);
+  const [uid, setUid] = useState<string | null>(null);
+
+  const inputWrapperRef = useRef<HTMLDivElement>(null);
+  const [inputRect, setInputRect] = useState<DOMRect | null>(null);
+
+  // Listen for auth state changes and set UID
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUid(user.uid);
+      } else {
+        setUid(null);
+        setWatchlistStocks([]);
+        toast.error("You must be logged in to manage your watchlist.");
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Load stock suggestions from tickers files on mount
+  useEffect(() => {
+    const fetchTickers = async (url: string): Promise<string[]> => {
+      try {
+        const res = await fetch(url);
+        const text = await res.text();
+        return text
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0);
+      } catch (error) {
+        console.error(`Failed to load ${url}`, error);
+        return [];
+      }
+    };
+
+    const loadAllTickers = async () => {
+      const [bseTickers, nseTickers] = await Promise.all([
+        fetchTickers('/tickersbse.txt'),
+        fetchTickers('/tickersnse.txt')
+      ]);
+      const combinedTickers = Array.from(new Set([...bseTickers, ...nseTickers]));
+      setStockSuggestions(combinedTickers);
+    };
+
+    loadAllTickers();
+  }, []);
+
+  // Update bounding rect for suggestions dropdown
+  useEffect(() => {
+    const updatePosition = () => {
+      if (inputWrapperRef.current) {
+        setInputRect(inputWrapperRef.current.getBoundingClientRect());
+      }
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (inputWrapperRef.current) {
+      setInputRect(inputWrapperRef.current.getBoundingClientRect());
     }
-  ]);
+  }, [newStock, stockSuggestions]);
 
-  // Mock stock suggestions for autocomplete
-  const stockSuggestions = [
-    'RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFC.NS', 'ICICIBANK.NS', 'SBIN.NS', 
-    'BHARTIARTL.NS', 'ITC.NS', 'HDFCBANK.NS', 'LT.NS', 'ASIANPAINT.NS', 'MARUTI.NS'
-  ];
+  // Subscribe to Firestore watchlist updates when uid changes
+  useEffect(() => {
+    if (!uid) {
+      setWatchlistStocks([]);
+      return;
+    }
 
-  const filteredSuggestions = newStock 
-    ? stockSuggestions.filter(stock => 
+    const colRef = collection(db, 'users', uid, 'watchlist', 'default', 'items');
+
+    const unsubscribe = onSnapshot(
+      colRef,
+      (snapshot: QuerySnapshot<DocumentData>) => {
+        const stocks: WatchlistStock[] = [];
+        snapshot.forEach(docSnap => {
+          const data = docSnap.data();
+          stocks.push({
+            symbol: data.symbol,
+            ltp: data.ltp,
+            dailyChange: data.dailyChange,
+            dailyChangePercent: data.dailyChangePercent,
+            prediction: data.prediction,
+            predictionConfidence: data.predictionConfidence,
+            addedAt: data.addedAt
+          });
+        });
+        setWatchlistStocks(stocks);
+      },
+      (error) => {
+        console.error('Failed to fetch watchlist', error);
+        toast.error('Failed to load your watchlist.');
+      }
+    );
+
+    return () => unsubscribe();
+  }, [uid]);
+
+  const filteredSuggestions = newStock
+    ? stockSuggestions.filter(stock =>
         stock.toLowerCase().includes(newStock.toLowerCase()) &&
-        !watchlistStocks.some(w => w.symbol === stock)
+        !watchlistStocks.some(w => w.symbol.toLowerCase() === stock.toLowerCase())
       )
     : [];
 
@@ -87,68 +179,103 @@ export function EnhancedWatchlist() {
     stock.symbol.toLowerCase().includes(searchFilter.toLowerCase())
   );
 
+  // Add stock to Firestore with live data
   const handleAddStock = async () => {
-    if (!newStock.trim() || watchlistStocks.some(stock => stock.symbol === newStock)) {
-      toast.error('Stock already in watchlist or invalid symbol');
+    if (!uid) {
+      toast.error('Please log in to add stocks.');
+      return;
+    }
+
+    const trimmedStock = newStock.trim().toUpperCase();
+    const alreadyInWatchlist = watchlistStocks.some(
+      stock => stock.symbol.toLowerCase() === trimmedStock.toLowerCase()
+    );
+    const isValid = stockSuggestions.some(
+      s => s.toLowerCase() === trimmedStock.toLowerCase()
+    );
+
+    if (!trimmedStock || alreadyInWatchlist || !isValid) {
+      toast.error('Invalid or duplicate stock symbol');
       return;
     }
 
     setIsAdding(true);
-    
     try {
-      // Simulate Firebase/API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      const fetched = await fetchStockData([trimmedStock]);
+      const live = fetched[trimmedStock] ?? {};
+
       const newWatchlistStock: WatchlistStock = {
-        symbol: newStock.toUpperCase(),
-        ltp: Math.random() * 3000 + 1000,
-        dailyChange: (Math.random() - 0.5) * 50,
-        dailyChangePercent: (Math.random() - 0.5) * 3,
+        symbol: trimmedStock,
+        ltp: live.ltp ?? 0,
+        dailyChange: live.dailyChange ?? 0,
+        dailyChangePercent: live.dailyChangePercent ?? 0,
         prediction: ['Buy', 'Sell', 'Hold'][Math.floor(Math.random() * 3)] as 'Buy' | 'Sell' | 'Hold',
         predictionConfidence: Math.random() * 30 + 65,
-        addedAt: 'Just now'
+        addedAt: new Date().toISOString()
       };
 
-      setWatchlistStocks(prev => [...prev, newWatchlistStock]);
+      await setDoc(
+        doc(db, 'users', uid, 'watchlist', 'default', 'items', trimmedStock),
+        newWatchlistStock
+      );
+
       setNewStock('');
-      toast.success(`${newStock.toUpperCase()} added to watchlist`);
+      toast.success(`${trimmedStock} added to watchlist`);
     } catch (error) {
-      toast.error('Failed to add stock to watchlist');
+      console.error('Error adding stock', error);
+      toast.error('Failed to add stock');
     } finally {
       setIsAdding(false);
     }
   };
 
+  // Remove stock from Firestore
   const handleRemoveStock = async (symbol: string) => {
+    if (!uid) {
+      toast.error('Please log in to remove stocks.');
+      return;
+    }
+
     try {
-      // Simulate Firebase/API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setWatchlistStocks(prev => prev.filter(stock => stock.symbol !== symbol));
+      await deleteDoc(doc(db, 'users', uid, 'watchlist', 'default', 'items', symbol));
       toast.success(`${symbol} removed from watchlist`);
     } catch (error) {
-      toast.error('Failed to remove stock from watchlist');
+      console.error('Error removing stock', error);
+      toast.error('Failed to remove stock');
     }
   };
 
+  // Refresh stock prices using Yahoo Finance
   const handleRefreshPrices = async () => {
+    if (!uid) {
+      toast.error('Please log in to refresh data.');
+      return;
+    }
+
     setIsRefreshing(true);
-    
     try {
-      // Simulate price refresh API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      setWatchlistStocks(prev => prev.map(stock => ({
-        ...stock,
-        ltp: stock.ltp + (Math.random() - 0.5) * 20,
-        dailyChange: (Math.random() - 0.5) * 30,
-        dailyChangePercent: (Math.random() - 0.5) * 2,
-        prediction: ['Buy', 'Sell', 'Hold'][Math.floor(Math.random() * 3)] as 'Buy' | 'Sell' | 'Hold',
-        predictionConfidence: Math.random() * 30 + 65
-      })));
-      
+      const symbols = watchlistStocks.map(stock => stock.symbol);
+      const fetched = await fetchStockData(symbols);
+
+      const updatedStocks = watchlistStocks.map(stock => {
+        const live = fetched[stock.symbol] ?? {};
+        return {
+          ...stock,
+          ltp: live.ltp ?? stock.ltp,
+          dailyChange: live.dailyChange ?? stock.dailyChange,
+          dailyChangePercent: live.dailyChangePercent ?? stock.dailyChangePercent,
+          prediction: ['Buy', 'Sell', 'Hold'][Math.floor(Math.random() * 3)] as 'Buy' | 'Sell' | 'Hold',
+          predictionConfidence: Math.random() * 30 + 65
+        };
+      });
+
+      await Promise.all(updatedStocks.map(stock =>
+        setDoc(doc(db, 'users', uid, 'watchlist', 'default', 'items', stock.symbol), stock)
+      ));
+
       toast.success('Prices and predictions refreshed');
     } catch (error) {
+      console.error('Error refreshing data', error);
       toast.error('Failed to refresh data');
     } finally {
       setIsRefreshing(false);
@@ -171,12 +298,10 @@ export function EnhancedWatchlist() {
     <div className="space-y-6">
       {/* Add Stock Section */}
       <Card className="glass-card p-6">
-        <h2 className="text-xl text-white font-semibold mb-4">
-          Add Stock to Watchlist
-        </h2>
-        
+        <h2 className="text-xl text-white font-semibold mb-4">Add Stock to Watchlist</h2>
+
         <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 relative">
+          <div className="flex-1 relative" ref={inputWrapperRef}>
             <Input
               placeholder="Enter stock symbol (e.g., RELIANCE.NS)"
               value={newStock}
@@ -184,24 +309,36 @@ export function EnhancedWatchlist() {
               className="bg-input border-white/20 text-white placeholder:text-neutral-text/60"
               onKeyPress={(e) => e.key === 'Enter' && handleAddStock()}
             />
-            
-            {/* Autocomplete suggestions */}
-            {filteredSuggestions.length > 0 && newStock && (
-              <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-card border border-white/20 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                {filteredSuggestions.slice(0, 5).map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    onClick={() => setNewStock(suggestion)}
-                    className="w-full text-left px-4 py-2 text-white hover:bg-white/10 transition-colors"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
+
+            {filteredSuggestions.length > 0 && newStock && inputRect && (
+              <Portal>
+                <div
+                  className="z-[9999] bg-card border border-white/20 rounded-lg shadow-lg max-h-40 overflow-y-auto"
+                  style={{
+                    position: 'absolute',
+                    top: inputRect.bottom + window.scrollY,
+                    left: inputRect.left + window.scrollX,
+                    width: inputRect.width
+                  }}
+                >
+                  {filteredSuggestions.slice(0, 5).map(suggestion => (
+                    <button
+                      key={suggestion}
+                      onClick={() => {
+                        setNewStock(suggestion);
+                        setTimeout(() => handleAddStock(), 100);
+                      }}
+                      className="w-full text-left px-4 py-2 text-white hover:bg-white/10 transition-colors"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </Portal>
             )}
           </div>
 
-          <Button 
+          <Button
             onClick={handleAddStock}
             disabled={isAdding || !newStock.trim()}
             className="bg-accent-teal hover:bg-accent-teal/90 text-white"
@@ -214,12 +351,12 @@ export function EnhancedWatchlist() {
       </Card>
 
       {/* Watchlist Table */}
-      <Card className="glass-card p-6">
+      <Card className="glass-card p-6" style={{ overflow: 'visible', position: 'relative', zIndex: 0 }}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <h2 className="text-xl text-white font-semibold">
             Watchlist ({filteredWatchlist.length})
           </h2>
-          
+
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-text/60" />
@@ -230,8 +367,8 @@ export function EnhancedWatchlist() {
                 className="pl-10 bg-input border-white/20 text-white placeholder:text-neutral-text/60 sm:w-48"
               />
             </div>
-            
-            <Button 
+
+            <Button
               onClick={handleRefreshPrices}
               disabled={isRefreshing}
               variant="outline"
@@ -260,91 +397,58 @@ export function EnhancedWatchlist() {
                   <TableHead className="text-neutral-text">Symbol</TableHead>
                   <TableHead className="text-neutral-text">LTP</TableHead>
                   <TableHead className="text-neutral-text">Daily %</TableHead>
-                  <TableHead className="text-neutral-text">Apex Analytics Prediction</TableHead>
-                  <TableHead className="text-neutral-text">Action</TableHead>
+                  <TableHead className="text-neutral-text">Prediction</TableHead>
+                  <TableHead className="text-neutral-text">Confidence</TableHead>
+                  <TableHead className="text-neutral-text">Added At</TableHead>
+                  <TableHead className="text-neutral-text">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredWatchlist.map((stock) => {
+                {filteredWatchlist.map(stock => {
                   const isPositive = stock.dailyChange >= 0;
-                  
                   return (
-                    <TableRow 
-                      key={stock.symbol}
-                      className="border-white/10 hover:bg-white/5 transition-colors"
-                    >
-                      <TableCell className="font-medium">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-white">{stock.symbol}</span>
-                          <Badge variant="outline" className="border-white/20 text-neutral-text/60 text-xs">
-                            {stock.addedAt}
-                          </Badge>
-                        </div>
+                    <TableRow key={stock.symbol} className="border-white/10 hover:bg-white/5 transition-colors">
+                      <TableCell className="font-semibold text-white">{stock.symbol}</TableCell>
+                      <TableCell className="text-white font-semibold">{`\u20B9 ${stock.ltp.toFixed(2)}`}</TableCell>
+                      <TableCell
+                        className={`font-medium ${
+                          isPositive ? 'text-success-green' : 'text-error-red'
+                        }`}
+                      >
+                        {isPositive ? <TrendingUp className="inline w-4 h-4 mr-1" /> : <TrendingDown className="inline w-4 h-4 mr-1" />}
+                        {stock.dailyChangePercent.toFixed(2)}%
                       </TableCell>
-                      
-                      <TableCell className="text-white font-semibold">
-                        ₹{stock.ltp.toFixed(2)}
-                      </TableCell>
-                      
                       <TableCell>
-                        <div 
-                          className="flex items-center space-x-1 font-medium"
-                          style={{ 
-                            color: isPositive ? 'var(--success-green)' : 'var(--error-red)' 
+                        <Badge
+                          variant="outline"
+                          style={{
+                            borderColor: getPredictionColor(stock.prediction),
+                            color: getPredictionColor(stock.prediction)
                           }}
                         >
-                          {isPositive ? (
-                            <TrendingUp className="w-4 h-4" />
-                          ) : (
-                            <TrendingDown className="w-4 h-4" />
-                          )}
-                          <span>
-                            {isPositive ? '+' : ''}{stock.dailyChangePercent.toFixed(2)}%
-                          </span>
-                        </div>
+                          {stock.prediction}
+                        </Badge>
                       </TableCell>
-                      
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Badge 
-                            variant="outline" 
-                            className="font-medium"
-                            style={{ 
-                              borderColor: getPredictionColor(stock.prediction), 
-                              color: getPredictionColor(stock.prediction) 
-                            }}
-                          >
-                            {stock.prediction}
-                          </Badge>
-                          <span 
-                            className="text-xs"
-                            title={`Based on Prophet & LightGBM models. Confidence: ${stock.predictionConfidence.toFixed(1)}%`}
-                          >
-                            ({stock.predictionConfidence.toFixed(1)}%)
-                          </span>
-                        </div>
-                      </TableCell>
-                      
-                      <TableCell>
-                        <div className="flex space-x-2">
-                          <Button
-                            onClick={() => handleViewStock(stock.symbol)}
-                            variant="outline"
-                            size="sm"
-                            className="border-white/20 text-neutral-text hover:border-accent-teal hover:text-accent-teal"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            onClick={() => handleRemoveStock(stock.symbol)}
-                            variant="outline"
-                            size="sm"
-                            className="border-error-red/30 text-error-red hover:bg-error-red hover:text-white"
-                            style={{ borderColor: 'var(--error-red)', color: 'var(--error-red)' }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                      <TableCell>{stock.predictionConfidence.toFixed(1)}%</TableCell>
+                      <TableCell>{new Date(stock.addedAt).toLocaleString()}</TableCell>
+                      <TableCell className="flex space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleViewStock(stock.symbol)}
+                          className="border-white/20 text-neutral-text hover:border-accent-teal hover:text-accent-teal"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRemoveStock(stock.symbol)}
+                          className="border-error-red/30 text-error-red hover:bg-error-red hover:text-white"
+                          style={{ borderColor: 'var(--error-red)', color: 'var(--error-red)' }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   );
