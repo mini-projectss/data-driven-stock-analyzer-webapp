@@ -29,7 +29,7 @@ export function DashboardSidebar({ activeSection, onSectionChange, onNavigate }:
     { id: 'prediction', label: 'Prediction Engine', icon: Brain, isPage: true },
     { id: 'news', label: 'News Feed', icon: Newspaper, isPage: true },
     { id: 'trends', label: 'Google Trends', icon: Search, isPage: true },
-    { id: 'political', label: 'Political Trading', icon: TrendingUp, isPage: false },
+    { id: 'political', label: 'Political Trading', icon: TrendingUp, isPage: true },
     { id: 'profile', label: 'Profile', icon: User, isPage: true },
     { id: 'logout', label: 'Logout', icon: LogOut, isPage: false },
   ];

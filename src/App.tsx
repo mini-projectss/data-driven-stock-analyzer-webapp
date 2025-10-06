@@ -5,10 +5,11 @@ import { DashboardPage } from './pages/DashboardPage';
 import { PredictionEnginePage } from './pages/PredictionEnginePage';
 import { NewsFeedPage } from './pages/NewsFeedPage';
 import { GoogleTrendsPage } from './pages/GoogleTrendsPage';
+import { PoliticalTradingPage } from './pages/PoliticalTradingPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { Toaster } from './components/ui/sonner';
 
-type Page = 'landing' | 'auth' | 'dashboard' | 'prediction' | 'news' | 'trends' | 'profile';
+type Page = 'landing' | 'auth' | 'dashboard' | 'prediction' | 'news' | 'trends' | 'political' | 'profile';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('landing');
@@ -41,6 +42,10 @@ export default function App() {
       
       {currentPage === 'trends' && (
         <GoogleTrendsPage onNavigate={navigateToPage} />
+      )}
+      
+      {currentPage === 'political' && (
+        <PoliticalTradingPage onNavigate={navigateToPage} />
       )}
       
       {currentPage === 'profile' && (
