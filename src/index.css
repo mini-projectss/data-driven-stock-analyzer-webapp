@@ -2444,6 +2444,8 @@
     background-color: var(--destructive);
   }
 
+
+
   @supports (color: color-mix(in lab, red, red)) {
     .dark\:bg-destructive\/60:is(.dark *) {
       background-color: color-mix(in oklab, var(--destructive) 60%, transparent);
@@ -2667,6 +2669,20 @@
   }
 }
 
+
+/* Modern themed scrollbar for .custom-scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12);
+  border-radius: 8px;
+}
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
+}
 
 :root {
   --font-size: 16px;

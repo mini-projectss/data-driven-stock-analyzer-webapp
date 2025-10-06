@@ -15,6 +15,7 @@ import { Search, Clock, Activity, TrendingUp, DollarSign } from "lucide-react";
 
 interface DashboardHeaderProps {
   onSearch?: (symbol: string, exchange: "NSE" | "BSE") => void;
+  onExchangeChange?: (exchange: "NSE" | "BSE") => void;
 }
 
 type TickerItem = { display: string; file: string };
@@ -43,7 +44,7 @@ function getApiBase(): string {
   return "";
 }
 
-export function DashboardHeader({ onSearch }: DashboardHeaderProps) {
+export function DashboardHeader({ onSearch, onExchangeChange }: DashboardHeaderProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [exchange, setExchange] = useState<"NSE" | "BSE">("NSE");
   const [justSelected, setJustSelected] = useState(false);
@@ -301,7 +302,14 @@ export function DashboardHeader({ onSearch }: DashboardHeaderProps) {
           />
         </form>
 
-        <Select value={exchange.toLowerCase()} onValueChange={(v) => setExchange(v === "bse" ? "BSE" : "NSE")}>
+        <Select
+          value={exchange.toLowerCase()}
+          onValueChange={(v) => {
+            const newEx = v === "bse" ? "BSE" : "NSE";
+            setExchange(newEx);
+            onExchangeChange?.(newEx); // 👈 Notify parent DashboardPage
+          }}
+        >
           <SelectTrigger className="w-32 bg-input border-white/20 text-white">
             <SelectValue />
           </SelectTrigger>
@@ -352,3 +360,4 @@ export function DashboardHeader({ onSearch }: DashboardHeaderProps) {
     </div>
   );
 }
+  

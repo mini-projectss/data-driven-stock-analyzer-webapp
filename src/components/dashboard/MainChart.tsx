@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
 
 interface MainChartProps {
   selectedStock: string;            // format "SYMBOL::EXCHANGE" e.g. "RELIANCE::NSE"
@@ -45,8 +45,8 @@ export function MainChart({ selectedStock, onStockChange }: MainChartProps) {
   const [timeRange, setTimeRange] = useState('1m');
   const [fullData, setFullData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedValueKey, setSelectedValueKey] = useState<'open' | 'high' | 'low' | 'close' | 'volume'>('close');
 
-  const stockChips = ['RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICIBANK', 'SBIN', 'BHARTIARTL'];
   const timeRanges = [
     { value: '1d', label: '1D', days: 1 },
     { value: '5d', label: '5D', days: 5 },
@@ -98,6 +98,7 @@ export function MainChart({ selectedStock, onStockChange }: MainChartProps) {
     fetchData();
   }, [symbol, exchange]);
 
+  // Prepare chart data based on selected value key
   const slicedData = useMemo(() => {
     if (!fullData || fullData.length === 0) return [];
     const r = timeRanges.find(t => t.value === timeRange);
@@ -105,37 +106,47 @@ export function MainChart({ selectedStock, onStockChange }: MainChartProps) {
     if (!Number.isFinite(days) || days <= 0) days = Math.min(22, fullData.length);
     const start = Math.max(0, fullData.length - days);
     const slice = fullData.slice(start);
-    return slice.map(d => ({ date: d.date, price: d.close }));
-  }, [fullData, timeRange]);
+    return slice.map(d => ({
+      date: d.date,
+      value: d[selectedValueKey]
+    }));
+  }, [fullData, timeRange, selectedValueKey]);
 
-  const currentPrice = fullData.length ? fullData[fullData.length - 1].close : 0;
-  const previousPrice = fullData.length > 1 ? fullData[fullData.length - 2].close : currentPrice;
-  const priceChange = (currentPrice || 0) - (previousPrice || 0);
-  const priceChangePercent = previousPrice ? (priceChange / previousPrice) * 100 : 0;
-  const isPositive = priceChange >= 0;
+  // For header stats, use latest row
+  const latestRow = fullData.length ? fullData[fullData.length - 1] : {};
+  const previousRow = fullData.length > 1 ? fullData[fullData.length - 2] : latestRow;
+  const currentValue = latestRow[selectedValueKey] ?? 0;
+  const previousValue = previousRow[selectedValueKey] ?? currentValue;
+  const valueChange = (currentValue || 0) - (previousValue || 0);
+  const valueChangePercent = previousValue ? (valueChange / previousValue) * 100 : 0;
+  const isPositive = valueChange >= 0;
 
-  function handleChipClick(chipSymbol: string) {
-    const key = `${chipSymbol}::${exchange || "NSE"}`;
-    onStockChange(key);
-  }
+  // Value pills
+  const valuePills: { key: 'open' | 'high' | 'low' | 'close' | 'volume'; label: string }[] = [
+    { key: 'open', label: 'Open' },
+    { key: 'high', label: 'High' },
+    { key: 'low', label: 'Low' },
+    { key: 'close', label: 'Close' },
+    { key: 'volume', label: 'Volume' }
+  ];
 
   return (
     <Card className="glass-card p-6 mb-6">
-      {/* Stock Chips */}
+      {/* Value Pills */}
       <div className="flex flex-wrap gap-2 mb-6">
-        {stockChips.map((stock) => (
+        {valuePills.map((pill) => (
           <Badge
-            key={stock}
-            variant={selectedStock?.startsWith(`${stock}::`) ? "default" : "outline"}
+            key={pill.key}
+            variant={selectedValueKey === pill.key ? "default" : "outline"}
             className={`cursor-pointer transition-colors ${
-              selectedStock?.startsWith(`${stock}::`)
+              selectedValueKey === pill.key
                 ? 'bg-accent-teal text-white border-accent-teal'
                 : 'border-white/20 text-neutral-text hover:border-accent-teal hover:text-accent-teal'
             }`}
-            onClick={() => handleChipClick(stock)}
-            style={selectedStock?.startsWith(`${stock}::`) ? { backgroundColor: 'var(--accent-teal)' } : {}}
+            onClick={() => setSelectedValueKey(pill.key)}
+            style={selectedValueKey === pill.key ? { backgroundColor: 'var(--accent-teal)' } : {}}
           >
-            {stock}
+            {pill.label}
           </Badge>
         ))}
       </div>
@@ -144,14 +155,22 @@ export function MainChart({ selectedStock, onStockChange }: MainChartProps) {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 space-y-4 sm:space-y-0">
         <div>
           <h2 className="text-2xl text-white font-semibold mb-1">
-            {symbol} - ₹{(currentPrice || 0).toFixed(2)}
+            {symbol} - {selectedValueKey === "volume" ? "" : "₹"}
+            {(currentValue || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
           </h2>
           <p
             className="text-lg flex items-center space-x-2"
             style={{ color: isPositive ? 'var(--success-green)' : 'var(--error-red)' }}
           >
-            <span>{isPositive ? '+' : ''}₹{priceChange.toFixed(2)}</span>
-            <span>({isPositive ? '+' : ''}{priceChangePercent.toFixed(2)}%)</span>
+            <span>
+              {isPositive ? '+' : ''}
+              {selectedValueKey === "volume" ? "" : "₹"}
+              {valueChange.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </span>
+            <span>
+              ({isPositive ? '+' : ''}
+              {valueChangePercent.toFixed(2)}%)
+            </span>
           </p>
         </div>
 
@@ -190,9 +209,28 @@ export function MainChart({ selectedStock, onStockChange }: MainChartProps) {
               fontSize={12}
               domain={['auto', 'auto']}
             />
+            <Tooltip
+              contentStyle={{
+                background: "rgba(30, 41, 59, 0.95)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "8px",
+                color: "#fff",
+                fontSize: "14px"
+              }}
+              labelStyle={{
+                color: "#aee",
+                fontWeight: 500
+              }}
+              formatter={(value: any) => [
+                selectedValueKey === "volume"
+                  ? `${Number(value).toLocaleString()}`
+                  : `₹${Number(value).toFixed(2)}`,
+                valuePills.find(p => p.key === selectedValueKey)?.label || "Value"
+              ]}
+            />
             <Line
               type="monotone"
-              dataKey="price"
+              dataKey="value"
               stroke={isPositive ? 'var(--success-green)' : 'var(--error-red)'}
               strokeWidth={2}
               dot={false}

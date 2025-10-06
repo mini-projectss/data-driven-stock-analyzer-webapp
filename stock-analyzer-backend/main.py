@@ -19,6 +19,16 @@ app.add_middleware(
 from header_api import router as header_router
 app.include_router(header_router)
 
+from indices_api import router as indices_router
+app.include_router(indices_router)
+
+from treemap_api import router as treemap_router
+app.include_router(treemap_router)
+
+from datatable_api import router as datatable_router
+app.include_router(datatable_router)
+
+
 
 @app.on_event("startup")
 def start_background_tasks():
