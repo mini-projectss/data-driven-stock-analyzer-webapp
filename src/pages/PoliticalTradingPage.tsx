@@ -1,16 +1,13 @@
-import React, { useState, useMemo } from 'react';
+// src/pages/PoliticalTradingPage.tsx
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { DashboardSidebar } from '../components/dashboard/DashboardSidebar';
 import { FiltersBar } from '../components/political/FiltersBar';
 import { TrendSummaryCard } from '../components/political/TrendSummaryCard';
 import { TradesList } from '../components/political/TradesList';
 import { TrendingUp } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
-interface PoliticalTradingPageProps {
-  onNavigate?: (page: string) => void;
-}
-
-interface PoliticalTrade {
+type PoliticalTrade = {
   id: string;
   personName: string;
   category: 'Politician' | 'Promoter';
@@ -20,201 +17,124 @@ interface PoliticalTrade {
   quantity: number;
   value: number;
   pricePerShare: number;
-  transactionDate: string;
+  transactionDate: string; // YYYY-MM-DD
   exchange: 'NSE' | 'BSE';
   portfolioImpact?: string;
+};
+
+interface PoliticalTradingPageProps {
+  onNavigate?: (page: string) => void;
+  onStockSelect?: (stockKey: string) => void; // optional: allow parent to open main chart
 }
 
-export function PoliticalTradingPage({ onNavigate }: PoliticalTradingPageProps) {
+function getApiBase(): string {
+  try {
+    // Vite / import.meta
+    // @ts-ignore
+    const vite = typeof window !== "undefined" && (import.meta as any)?.env?.VITE_API_BASE;
+    if (vite) return vite;
+  } catch {}
+  try {
+    // CRA style
+    // @ts-ignore
+    if (typeof process !== "undefined" && (process as any).env?.REACT_APP_API_BASE) {
+      // @ts-ignore
+      return (process as any).env.REACT_APP_API_BASE;
+    }
+  } catch {}
+  try {
+    if (typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+      return "http://localhost:8000";
+    }
+  } catch {}
+  return "";
+}
+
+export function PoliticalTradingPage({ onNavigate, onStockSelect }: PoliticalTradingPageProps) {
   const [exchange, setExchange] = useState<'NSE' | 'BSE'>('NSE');
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [category, setCategory] = useState<'All' | 'Politician' | 'Promoter'>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [trades, setTrades] = useState<PoliticalTrade[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock data for political trades
-  const mockTrades: PoliticalTrade[] = [
-    {
-      id: '1',
-      personName: 'Ravi Shankar Prasad',
-      category: 'Politician',
-      action: 'BUY',
-      stockSymbol: 'RELIANCE.NS',
-      stockName: 'Reliance Industries Limited',
-      quantity: 5000,
-      value: 14753750,
-      pricePerShare: 2950.75,
-      transactionDate: '2024-01-15',
-      exchange: 'NSE',
-      portfolioImpact: 'Major'
-    },
-    {
-      id: '2',
-      personName: 'Mukesh Ambani',
-      category: 'Promoter',
-      action: 'SELL',
-      stockSymbol: 'TCS.NS',
-      stockName: 'Tata Consultancy Services Limited',
-      quantity: 2500,
-      value: 10313250,
-      pricePerShare: 4125.30,
-      transactionDate: '2024-01-14',
-      exchange: 'NSE',
-      portfolioImpact: 'Moderate'
-    },
-    {
-      id: '3',
-      personName: 'Nirmala Sitharaman',
-      category: 'Politician',
-      action: 'BUY',
-      stockSymbol: 'INFY.NS',
-      stockName: 'Infosys Limited',
-      quantity: 8000,
-      value: 13937600,
-      pricePerShare: 1742.20,
-      transactionDate: '2024-01-13',
-      exchange: 'NSE',
-      portfolioImpact: 'Major'
-    },
-    {
-      id: '4',
-      personName: 'Gautam Adani',
-      category: 'Promoter',
-      action: 'BUY',
-      stockSymbol: 'ADANIPORTS.NS',
-      stockName: 'Adani Ports and Special Economic Zone Limited',
-      quantity: 15000,
-      value: 11250000,
-      pricePerShare: 750.00,
-      transactionDate: '2024-01-12',
-      exchange: 'NSE',
-      portfolioImpact: 'Major'
-    },
-    {
-      id: '5',
-      personName: 'Piyush Goyal',
-      category: 'Politician',
-      action: 'SELL',
-      stockSymbol: 'ICICIBANK.NS',
-      stockName: 'ICICI Bank Limited',
-      quantity: 3000,
-      value: 3374250,
-      pricePerShare: 1124.75,
-      transactionDate: '2024-01-11',
-      exchange: 'NSE',
-      portfolioImpact: 'Minor'
-    },
-    {
-      id: '6',
-      personName: 'Ajay Piramal',
-      category: 'Promoter',
-      action: 'BUY',
-      stockSymbol: 'PIRAMAL.NS',
-      stockName: 'Piramal Enterprises Limited',
-      quantity: 12000,
-      value: 9600000,
-      pricePerShare: 800.00,
-      transactionDate: '2024-01-10',
-      exchange: 'NSE',
-      portfolioImpact: 'Major'
-    },
-    {
-      id: '7',
-      personName: 'Smriti Irani',
-      category: 'Politician',
-      action: 'BUY',
-      stockSymbol: 'HDFCBANK.NS',
-      stockName: 'HDFC Bank Limited',
-      quantity: 4000,
-      value: 6743600,
-      pricePerShare: 1685.90,
-      transactionDate: '2024-01-09',
-      exchange: 'NSE',
-      portfolioImpact: 'Moderate'
-    },
-    {
-      id: '8',
-      personName: 'Rahul Bajaj',
-      category: 'Promoter',
-      action: 'SELL',
-      stockSymbol: 'BAJFINANCE.NS',
-      stockName: 'Bajaj Finance Limited',
-      quantity: 1500,
-      value: 9750000,
-      pricePerShare: 6500.00,
-      transactionDate: '2024-01-08',
-      exchange: 'NSE',
-      portfolioImpact: 'Major'
+  const apiBase = getApiBase();
+  const searchDebounceRef = useRef<number | null>(null);
+
+  const fetchTrades = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.append('exchange', exchange);
+      if (startDate) params.append('start_date', startDate.toISOString().slice(0,10));
+      if (endDate) params.append('end_date', endDate.toISOString().slice(0,10));
+      if (category && category !== 'All') params.append('category', category);
+      if (searchQuery) params.append('search', searchQuery);
+      const res = await fetch(`${apiBase}/api/political/trades?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error(`server ${res.status}`);
+      }
+      const json = await res.json();
+      setTrades(json.items || []);
+    } catch (err: any) {
+      console.error("Error fetching political trades:", err);
+      setError("Failed to load trades");
+      setTrades([]);
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
-  // Filter trades based on current filters
-  const filteredTrades = useMemo(() => {
-    return mockTrades.filter(trade => {
-      // Exchange filter
-      if (trade.exchange !== exchange) return false;
+  // fetch on filter change; debounce search
+  useEffect(() => {
+    if (searchDebounceRef.current) {
+      window.clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+    // small debounce for typing search
+    searchDebounceRef.current = window.setTimeout(() => {
+      fetchTrades();
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exchange, startDate, endDate, category, searchQuery]);
 
-      // Category filter
-      if (category !== 'All' && trade.category !== category) return false;
-
-      // Search filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matchesPersonName = trade.personName.toLowerCase().includes(query);
-        const matchesStockSymbol = trade.stockSymbol.toLowerCase().includes(query);
-        const matchesStockName = trade.stockName.toLowerCase().includes(query);
-        if (!matchesPersonName && !matchesStockSymbol && !matchesStockName) return false;
-      }
-
-      // Date filter
-      if (startDate || endDate) {
-        const tradeDate = new Date(trade.transactionDate);
-        if (startDate && tradeDate < startDate) return false;
-        if (endDate && tradeDate > endDate) return false;
-      }
-
-      return true;
-    });
-  }, [mockTrades, exchange, category, searchQuery, startDate, endDate]);
-
-  // Calculate summary statistics
+  // summary computed client-side (also available via /api/political/summary)
   const summaryStats = useMemo(() => {
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-
-    const weeklyTrades = filteredTrades.filter(trade => 
-      new Date(trade.transactionDate) >= oneWeekAgo
-    );
-
-    const buys = weeklyTrades.filter(trade => trade.action === 'BUY');
-    const sells = weeklyTrades.filter(trade => trade.action === 'SELL');
-
-    const totalBuyValue = buys.reduce((sum, trade) => sum + trade.value, 0);
-    const totalSellValue = sells.reduce((sum, trade) => sum + trade.value, 0);
-    const netValue = totalBuyValue - totalSellValue;
-
+    const weekly = trades.filter(t => new Date(t.transactionDate) >= oneWeekAgo);
+    const buys = weekly.filter(t => t.action === 'BUY');
+    const sells = weekly.filter(t => t.action === 'SELL');
+    const totalBuyValue = buys.reduce((s, t) => s + (t.value || 0), 0);
+    const totalSellValue = sells.reduce((s, t) => s + (t.value || 0), 0);
     return {
       totalBuys: buys.length,
       totalSells: sells.length,
       totalBuyValue,
       totalSellValue,
-      netValue
+      netValue: totalBuyValue - totalSellValue
     };
-  }, [filteredTrades]);
+  }, [trades]);
 
   const handleStockClick = (symbol: string) => {
-    toast.info(`Opening detailed chart for ${symbol}`);
-    // In a real app, this would open the stock chart in MainChart component
-  };
-
-  const handleDateRangeChange = (newStartDate: Date | null, newEndDate: Date | null) => {
-    setStartDate(newStartDate);
-    setEndDate(newEndDate);
+    // allow parent to handle opening chart if provided
+    if (onStockSelect) {
+      // provide standardized key: "SYMBOL::EXCHANGE" (strip suffix if required)
+      const base = symbol.includes('.') ? symbol.split('.')[0] : symbol;
+      onStockSelect(`${base}::${exchange}`);
+    } else {
+      toast.info(`Open chart for ${symbol}`);
+    }
   };
 
   return (
     <div className="min-h-screen brand-gradient flex">
-      {/* Sidebar */}
       <div className="flex-shrink-0">
         <DashboardSidebar 
           activeSection="political"
@@ -223,26 +143,19 @@ export function PoliticalTradingPage({ onNavigate }: PoliticalTradingPageProps) 
         />
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
         <div className="glass-card border-b border-white/10 p-6">
           <div className="flex items-center space-x-3">
             <TrendingUp className="w-6 h-6 text-accent-teal" />
             <div>
-              <h1 className="text-2xl text-white font-semibold">
-                Political Trading
-              </h1>
-              <p className="text-neutral-text/80">
-                Track politician and promoter stock transactions across Indian markets
-              </p>
+              <h1 className="text-2xl text-white font-semibold">Political Trading</h1>
+              <p className="text-neutral-text/80">Track politician & promoter stock transactions</p>
             </div>
           </div>
         </div>
 
         <main className="flex-1 p-6 overflow-auto">
           <div className="max-w-7xl mx-auto space-y-6">
-            {/* Filters Bar */}
             <FiltersBar
               exchange={exchange}
               startDate={startDate}
@@ -250,31 +163,26 @@ export function PoliticalTradingPage({ onNavigate }: PoliticalTradingPageProps) 
               category={category}
               searchQuery={searchQuery}
               onExchangeChange={setExchange}
-              onDateRangeChange={handleDateRangeChange}
-              onCategoryChange={setCategory}
-              onSearchChange={setSearchQuery}
+              onDateRangeChange={(s,e) => { setStartDate(s); setEndDate(e); }}
+              onCategoryChange={(c) => setCategory(c)}
+              onSearchChange={(q) => setSearchQuery(q)}
             />
 
-            {/* Trend Summary Card */}
             <TrendSummaryCard {...summaryStats} />
 
-            {/* Trades List */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl text-white font-semibold">
-                  Recent Transactions ({filteredTrades.length})
-                </h2>
-                {searchQuery && (
-                  <p className="text-neutral-text/60 text-sm">
-                    Showing results for "{searchQuery}"
-                  </p>
+                <h2 className="text-xl text-white font-semibold">Recent Transactions ({trades.length})</h2>
+                {searchQuery && <p className="text-neutral-text/60 text-sm">Showing results for "{searchQuery}"</p>}
+              </div>
+
+              <div>
+                {loading && <div className="text-neutral-text p-4">Loading...</div>}
+                {error && <div className="text-red-400 p-4">{error}</div>}
+                {!loading && !error && (
+                  <TradesList trades={trades} onStockClick={handleStockClick} />
                 )}
               </div>
-              
-              <TradesList 
-                trades={filteredTrades}
-                onStockClick={handleStockClick}
-              />
             </div>
           </div>
         </main>

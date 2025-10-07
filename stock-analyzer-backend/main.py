@@ -28,6 +28,9 @@ app.include_router(treemap_router)
 from datatable_api import router as datatable_router
 app.include_router(datatable_router)
 
+# main.py (excerpt near other routers)
+from political_api import router as political_router
+app.include_router(political_router)
 
 
 @app.on_event("startup")
