@@ -4,6 +4,7 @@ from header_api import advdec_updater
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+
 app = FastAPI()
 
 # allow your dev frontend origin. Be specific in production.
@@ -14,6 +15,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from news_api import router as news_router
+app.include_router(news_router)
 
 # import and include our header routes
 from header_api import router as header_router

@@ -6,101 +6,21 @@ import { ExternalLink } from 'lucide-react';
 
 interface NewsItem {
   ticker: string;
-  headline: string;
+  text: string;  // Backend uses 'text' for headline/title
   sentiment: 'positive' | 'negative' | 'neutral';
   score: number;
   source: string;
   url: string;
-  publishedAt: string;
+  // backend currently does not provide publishedAt, so optional or fixed string
+  publishedAt?: string;
 }
 
 interface NewsTableProps {
-  searchTicker?: string;
+  newsItems: NewsItem[];
   isLoading?: boolean;
 }
 
-export function NewsTable({ searchTicker, isLoading }: NewsTableProps) {
-  const mockNewsData: NewsItem[] = [
-    {
-      ticker: 'RELIANCE',
-      headline: 'Reliance Industries reports strong Q3 earnings, beats estimates',
-      sentiment: 'positive',
-      score: 0.85,
-      source: 'Economic Times',
-      url: '#',
-      publishedAt: '2 hours ago'
-    },
-    {
-      ticker: 'TCS',
-      headline: 'TCS announces major cloud infrastructure deal with Fortune 500 company',
-      sentiment: 'positive',
-      score: 0.72,
-      source: 'Business Standard',
-      url: '#',
-      publishedAt: '4 hours ago'
-    },
-    {
-      ticker: 'INFY',
-      headline: 'Infosys faces headwinds in key European markets amid economic uncertainty',
-      sentiment: 'negative',
-      score: -0.68,
-      source: 'Reuters',
-      url: '#',
-      publishedAt: '6 hours ago'
-    },
-    {
-      ticker: 'HDFC',
-      headline: 'HDFC Bank maintains stable outlook despite sector challenges',
-      sentiment: 'neutral',
-      score: 0.12,
-      source: 'Mint',
-      url: '#',
-      publishedAt: '8 hours ago'
-    },
-    {
-      ticker: 'ICICIBANK',
-      headline: 'ICICI Bank digital transformation drives customer growth',
-      sentiment: 'positive',
-      score: 0.59,
-      source: 'Financial Express',
-      url: '#',
-      publishedAt: '10 hours ago'
-    },
-    {
-      ticker: 'NIFTY',
-      headline: 'Nifty 50 reaches new milestone as institutional buying surges',
-      sentiment: 'positive',
-      score: 0.91,
-      source: 'MoneyControl',
-      url: '#',
-      publishedAt: '12 hours ago'
-    },
-    {
-      ticker: 'RELIANCE',
-      headline: 'Reliance Jio expansion into international markets shows promise',
-      sentiment: 'positive',
-      score: 0.76,
-      source: 'CNBC TV18',
-      url: '#',
-      publishedAt: '1 day ago'
-    },
-    {
-      ticker: 'TCS',
-      headline: 'TCS quarterly revenue growth slows down amid global economic concerns',
-      sentiment: 'negative',
-      score: -0.45,
-      source: 'Bloomberg',
-      url: '#',
-      publishedAt: '1 day ago'
-    }
-  ];
-
-  const filteredNews = searchTicker 
-    ? mockNewsData.filter(item => 
-        item.ticker.toLowerCase().includes(searchTicker.toLowerCase())
-      )
-    : mockNewsData;
-
+export function NewsTable({ newsItems, isLoading }: NewsTableProps) {
   const getSentimentColor = (sentiment: string) => {
     switch (sentiment) {
       case 'positive': return 'var(--success-green)';
@@ -136,6 +56,18 @@ export function NewsTable({ searchTicker, isLoading }: NewsTableProps) {
     );
   }
 
+  if (newsItems.length === 0) {
+    return (
+      <Card className="glass-card p-6">
+        <div className="text-center py-8">
+          <p className="text-neutral-text/80">
+            No news articles available.
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="glass-card p-6">
       <div className="flex items-center justify-between mb-6">
@@ -143,7 +75,7 @@ export function NewsTable({ searchTicker, isLoading }: NewsTableProps) {
           Market News & Sentiment
         </h3>
         <Badge variant="outline" className="border-accent-teal/30 text-accent-teal">
-          {filteredNews.length} articles
+          {newsItems.length} articles
         </Badge>
       </div>
 
@@ -160,7 +92,7 @@ export function NewsTable({ searchTicker, isLoading }: NewsTableProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredNews.map((item, index) => (
+            {newsItems.map((item, index) => (
               <TableRow 
                 key={index} 
                 className="border-white/10 hover:bg-white/5 cursor-pointer transition-colors"
@@ -173,7 +105,7 @@ export function NewsTable({ searchTicker, isLoading }: NewsTableProps) {
                 </TableCell>
                 <TableCell className="max-w-md">
                   <div className="flex items-center space-x-2">
-                    <span className="text-white truncate">{item.headline}</span>
+                    <span className="text-white truncate">{item.text}</span>
                     <ExternalLink className="w-3 h-3 text-neutral-text/60 flex-shrink-0" />
                   </div>
                 </TableCell>
@@ -203,21 +135,13 @@ export function NewsTable({ searchTicker, isLoading }: NewsTableProps) {
                   {item.source}
                 </TableCell>
                 <TableCell className="text-neutral-text/60 text-sm">
-                  {item.publishedAt}
+                  {item.publishedAt || 'N/A'}
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
-
-      {filteredNews.length === 0 && (
-        <div className="text-center py-8">
-          <p className="text-neutral-text/80">
-            No news found for "{searchTicker}"
-          </p>
-        </div>
-      )}
     </Card>
   );
 }
