@@ -32,6 +32,9 @@ app.include_router(datatable_router)
 from political_api import router as political_router
 app.include_router(political_router)
 
+from prediction_api import router as prediction_router
+app.include_router(prediction_router)
+
 
 @app.on_event("startup")
 def start_background_tasks():

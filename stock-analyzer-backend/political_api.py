@@ -1,299 +1,238 @@
 # political_api.py
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
-import os
+import requests
 import logging
 import time
-import requests
-from typing import List, Optional, Dict
-import datetime
+import csv
+import os
+from typing import Optional, List, Dict
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("political_api")
+logging.basicConfig(level=logging.INFO)
 
-# small in-memory cache
-_SIMPLE_CACHE = {}
-def _cache_get(key):
-    rec = _SIMPLE_CACHE.get(key)
-    if not rec:
-        return None
-    val, expiry = rec
-    if time.time() > expiry:
-        _SIMPLE_CACHE.pop(key, None)
+CACHE = {}
+def cache_get(key):
+    rec = CACHE.get(key)
+    if not rec: return None
+    val, exp = rec
+    if time.time() > exp:
+        CACHE.pop(key, None)
         return None
     return val
+def cache_set(key, val, ttl=300):
+    CACHE[key] = (val, time.time() + ttl)
 
-def _cache_set(key, value, ttl=20):
-    _SIMPLE_CACHE[key] = (value, time.time() + ttl)
-
-# --- Mock fallback dataset (same shape as frontend expects) ---
-MOCK_TRADES = [
-    {
-      "id": "1",
-      "personName": "Ravi Shankar Prasad",
-      "category": "Politician",
-      "action": "BUY",
-      "stockSymbol": "RELIANCE.NS",
-      "stockName": "Reliance Industries Limited",
-      "quantity": 5000,
-      "value": 14753750,
-      "pricePerShare": 2950.75,
-      "transactionDate": "2024-01-15",
-      "exchange": "NSE",
-      "portfolioImpact": "Major"
-    },
-    {
-      "id": "2",
-      "personName": "Mukesh Ambani",
-      "category": "Promoter",
-      "action": "SELL",
-      "stockSymbol": "TCS.NS",
-      "stockName": "Tata Consultancy Services Limited",
-      "quantity": 2500,
-      "value": 10313250,
-      "pricePerShare": 4125.30,
-      "transactionDate": "2024-01-14",
-      "exchange": "NSE",
-      "portfolioImpact": "Moderate"
-    },
-    {
-      "id": "3",
-      "personName": "Nirmala Sitharaman",
-      "category": "Politician",
-      "action": "BUY",
-      "stockSymbol": "INFY.NS",
-      "stockName": "Infosys Limited",
-      "quantity": 8000,
-      "value": 13937600,
-      "pricePerShare": 1742.20,
-      "transactionDate": "2024-01-13",
-      "exchange": "NSE",
-      "portfolioImpact": "Major"
-    },
-    {
-      "id": "4",
-      "personName": "Gautam Adani",
-      "category": "Promoter",
-      "action": "BUY",
-      "stockSymbol": "ADANIPORTS.NS",
-      "stockName": "Adani Ports and Special Economic Zone Limited",
-      "quantity": 15000,
-      "value": 11250000,
-      "pricePerShare": 750.00,
-      "transactionDate": "2024-01-12",
-      "exchange": "NSE",
-      "portfolioImpact": "Major"
-    },
-    {
-      "id": "5",
-      "personName": "Piyush Goyal",
-      "category": "Politician",
-      "action": "SELL",
-      "stockSymbol": "ICICIBANK.NS",
-      "stockName": "ICICI Bank Limited",
-      "quantity": 3000,
-      "value": 3374250,
-      "pricePerShare": 1124.75,
-      "transactionDate": "2024-01-11",
-      "exchange": "NSE",
-      "portfolioImpact": "Minor"
-    },
-    {
-      "id": "6",
-      "personName": "Ajay Piramal",
-      "category": "Promoter",
-      "action": "BUY",
-      "stockSymbol": "PIRAMAL.NS",
-      "stockName": "Piramal Enterprises Limited",
-      "quantity": 12000,
-      "value": 9600000,
-      "pricePerShare": 800.00,
-      "transactionDate": "2024-01-10",
-      "exchange": "NSE",
-      "portfolioImpact": "Major"
-    },
-    {
-      "id": "7",
-      "personName": "Smriti Irani",
-      "category": "Politician",
-      "action": "BUY",
-      "stockSymbol": "HDFCBANK.NS",
-      "stockName": "HDFC Bank Limited",
-      "quantity": 4000,
-      "value": 6743600,
-      "pricePerShare": 1685.90,
-      "transactionDate": "2024-01-09",
-      "exchange": "NSE",
-      "portfolioImpact": "Moderate"
-    },
-    {
-      "id": "8",
-      "personName": "Rahul Bajaj",
-      "category": "Promoter",
-      "action": "SELL",
-      "stockSymbol": "BAJFINANCE.NS",
-      "stockName": "Bajaj Finance Limited",
-      "quantity": 1500,
-      "value": 9750000,
-      "pricePerShare": 6500.00,
-      "transactionDate": "2024-01-08",
-      "exchange": "NSE",
-      "portfolioImpact": "Major"
-    }
-]
-
-def _parse_date(s: Optional[str]):
-    if not s:
-        return None
+# Generic normalizer used for tradebrains / nse JSON shapes
+def normalize_record(rec: dict) -> dict:
+    symbol = str(rec.get("symbol") or rec.get("ticker") or rec.get("stockSymbol") or "").strip()
+    person = rec.get("acquirerDisposerName") or rec.get("owner") or rec.get("insiderName") or rec.get("personName") or rec.get("name") or ""
+    action_raw = (rec.get("transactionType") or rec.get("action") or rec.get("type") or "").upper()
+    action = "BUY" if "BUY" in action_raw.upper() or "ACQUISITION" in action_raw.upper() else ("SELL" if "SELL" in action_raw.upper() or "DISPOSAL" in action_raw.upper() else "BUY")
+    qty = rec.get("securitiesAcquiredDisposed") or rec.get("securitiesTraded") or rec.get("shares") or rec.get("quantity") or 0
     try:
-        return datetime.datetime.fromisoformat(s).date()
-    except Exception:
+        qty = int(float(qty))
+    except:
         try:
-            return datetime.datetime.strptime(s, "%Y-%m-%d").date()
-        except Exception:
-            return None
+            qty = int(''.join(ch for ch in str(qty) if ch.isdigit()) or 0)
+        except:
+            qty = 0
+    price = rec.get("avgPricePerSecurity") or rec.get("price") or rec.get("pricePerShare") or 0.0
+    try:
+        price = float(price)
+    except:
+        price = 0.0
+    value = rec.get("valueOfSecurity") or rec.get("value") or (qty * price)
+    date = rec.get("dateOfIntimation") or rec.get("transactionDate") or rec.get("date") or ""
+    category = rec.get("categoryOfPerson") or rec.get("category") or ""
+    return {
+        "id": rec.get("srNo") or f"{symbol}:{int(time.time()*1000)}",
+        "personName": person,
+        "category": category,
+        "action": action,
+        "stockSymbol": symbol,
+        "stockName": rec.get("company") or rec.get("stockName") or "",
+        "quantity": qty,
+        "value": float(value) if value is not None else None,
+        "pricePerShare": float(price) if price is not None else None,
+        "transactionDate": date,
+        "exchange": "NSE" if symbol.upper().endswith(".NS") or symbol and not symbol.upper().endswith(".BO") else "BSE",
+        "portfolioImpact": rec.get("modeOfAcquisition") or ""
+    }
 
-def _filter_trades(trades: List[Dict], exchange: str, start_date: Optional[str], end_date: Optional[str], category: Optional[str], search: Optional[str]) -> List[Dict]:
-    sd = _parse_date(start_date)
-    ed = _parse_date(end_date)
+# Provider: TradeBrains
+def fetch_tradebrains(limit=200) -> List[Dict]:
+    url = "https://portal.tradebrains.in/api/insider"
+    try:
+        r = requests.get(url, timeout=8)
+        if r.status_code != 200:
+            logger.info("TradeBrains status=%s", r.status_code)
+            return []
+        j = r.json()
+        arr = j.get("data") or j.get("items") or (j if isinstance(j, list) else [])
+        out = []
+        for rec in arr[:limit]:
+            out.append(normalize_record(rec))
+        return out
+    except Exception as e:
+        logger.exception("fetch_tradebrains failed: %s", e)
+        return []
+
+# Provider: NSE "official" JSON (best-effort)
+def fetch_nse(limit=200) -> List[Dict]:
+    homepage = "https://www.nseindia.com"
+    api_url = "https://www.nseindia.com/api/corporate-insider-trading?index=equities&page=1"
+    session = requests.Session()
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Referer": "https://www.nseindia.com/companies-listing/corporate-filings-insider-trading",
+        "Accept-Language": "en-US,en;q=0.9"
+    }
+    try:
+        # Do a quick homepage GET to get cookies/ak_bmsc etc.
+        session.get(homepage, headers=headers, timeout=6)
+        r = session.get(api_url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            logger.info("NSE API returned %s", r.status_code)
+            return []
+        data = r.json()
+        arr = data.get("data") or data.get("items") or (data if isinstance(data, list) else [])
+        out = []
+        for rec in arr[:limit]:
+            out.append(normalize_record(rec))
+        return out
+    except Exception as e:
+        logger.exception("fetch_nse failed: %s", e)
+        return []
+
+# Local CSV fallback reader
+def read_csv_fallback(path="data/insider_trades.csv", limit=200) -> List[Dict]:
+    if not os.path.exists(path):
+        return []
     out = []
-    q = (search or "").strip().lower() if search else ""
+    try:
+        with open(path, newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for i, row in enumerate(reader):
+                if i >= limit: break
+                # assume CSV columns match normalized keys: personName,stockSymbol,stockName,action,quantity,value,pricePerShare,transactionDate,category,exchange
+                rec = {
+                    "id": row.get("id") or f"csv:{i}",
+                    "personName": row.get("personName",""),
+                    "category": row.get("category",""),
+                    "action": (row.get("action") or "").upper(),
+                    "stockSymbol": row.get("stockSymbol",""),
+                    "stockName": row.get("stockName",""),
+                    "quantity": int(float(row.get("quantity") or 0)),
+                    "value": float(row.get("value") or 0),
+                    "pricePerShare": float(row.get("pricePerShare") or 0),
+                    "transactionDate": row.get("transactionDate",""),
+                    "exchange": row.get("exchange","NSE"),
+                    "portfolioImpact": row.get("portfolioImpact","")
+                }
+                out.append(rec)
+        return out
+    except Exception as e:
+        logger.exception("read_csv_fallback failed: %s", e)
+        return []
+
+def filter_trades(trades, exchange, start_date, end_date, category, search):
+    sd = None
+    ed = None
+    try:
+        if start_date: sd = start_date
+        if end_date: ed = end_date
+    except:
+        sd = ed = None
+    q = (search or "").strip().lower()
+    out = []
     for t in trades:
-        if exchange and t.get("exchange", "").upper() != exchange.upper():
+        if exchange and t.get("exchange","").upper() != exchange.upper():
             continue
-        if category and category != "All" and t.get("category") != category:
+        if category and category != "All" and category.lower() not in (t.get("category","") or "").lower():
             continue
         if sd or ed:
+            td = t.get("transactionDate","")
             try:
-                td = _parse_date(t.get("transactionDate"))
-                if sd and td < sd:
-                    continue
-                if ed and td > ed:
-                    continue
-            except Exception:
+                # try ISO
+                if td:
+                    d = td if isinstance(td, str) else str(td)
+                    # compare strings (frontend also uses iso). We'll be permissive.
+                    if sd and d < sd: continue
+                    if ed and d > ed: continue
+            except:
                 pass
         if q:
-            if q not in (t.get("personName","").lower() + " " + t.get("stockSymbol","").lower() + " " + t.get("stockName","").lower()):
+            combined = " ".join([str(t.get(k,"")) for k in ("personName","stockSymbol","stockName")]).lower()
+            if q not in combined:
                 continue
         out.append(t)
     return out
 
-def _normalize_external_item(raw: dict) -> Optional[dict]:
-    """
-    Attempt to normalize an external API record into our shape.
-    The external provider will vary; this small adapter tries common keys.
-    """
-    try:
-        return {
-            "id": str(raw.get("id") or raw.get("tradeId") or raw.get("transaction_id") or raw.get("uid") or int(time.time()*1000)),
-            "personName": raw.get("personName") or raw.get("name") or raw.get("actor") or "",
-            "category": raw.get("category") or raw.get("role") or "Politician",
-            "action": (raw.get("action") or raw.get("type") or "BUY").upper(),
-            "stockSymbol": raw.get("stockSymbol") or raw.get("symbol") or raw.get("ticker") or "",
-            "stockName": raw.get("stockName") or raw.get("company") or "",
-            "quantity": int(raw.get("quantity") or raw.get("qty") or 0),
-            "value": float(raw.get("value") or raw.get("amount") or 0),
-            "pricePerShare": float(raw.get("price") or raw.get("pricePerShare") or 0),
-            "transactionDate": raw.get("transactionDate") or raw.get("date") or "",
-            "exchange": (raw.get("exchange") or "NSE").upper(),
-            "portfolioImpact": raw.get("portfolioImpact") or raw.get("impact") or ""
-        }
-    except Exception:
-        return None
-
-# --- API endpoints ---
+# API endpoint
 @router.get("/api/political/trades")
 def api_political_trades(
-    exchange: str = Query("NSE", description="NSE or BSE"),
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
-    category: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
-    limit: int = Query(500)
-):
-    """
-    Returns list of political/promoter trades.
-    If POLITICAL_TRADES_API env var is set, attempts remote fetch and maps results.
-    Otherwise returns mocked fallback data.
-    Supports query params: exchange, start_date (YYYY-MM-DD), end_date, category, search.
-    """
-    cache_key = ("political_trades", exchange, start_date, end_date, category, search, limit)
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return {"items": cached}
-
-    # 1) Try external provider if configured
-    provider = os.environ.get("POLITICAL_TRADES_API", "").strip()
-    items = []
-    if provider:
-        try:
-            params = {
-                "exchange": exchange,
-                "start_date": start_date,
-                "end_date": end_date,
-                "category": category,
-                "search": search,
-                "limit": limit
-            }
-            r = requests.get(provider, params=params, timeout=8)
-            if r.status_code == 200:
-                raw = r.json()
-                # adapt depending on response shape
-                raw_list = []
-                if isinstance(raw, dict):
-                    # common keys: 'data', 'items'
-                    if "items" in raw:
-                        raw_list = raw["items"]
-                    elif "data" in raw:
-                        raw_list = raw["data"]
-                    else:
-                        # maybe top-level list-like dict values
-                        raw_list = []
-                elif isinstance(raw, list):
-                    raw_list = raw
-                for rec in raw_list:
-                    nr = _normalize_external_item(rec)
-                    if nr:
-                        items.append(nr)
-        except Exception as e:
-            logger.exception("political_api: external provider fetch failed: %s", e)
-
-    # 2) if provider returned nothing, use mock
-    if not items:
-        items = MOCK_TRADES.copy()
-
-    # 3) Local filtering (guarantee consistent behavior)
-    filtered = _filter_trades(items, exchange, start_date, end_date, category, search)
-    if len(filtered) > limit:
-        filtered = filtered[:limit]
-
-    _cache_set(cache_key, filtered, ttl=12)
-    return {"items": filtered}
-
-
-@router.get("/api/political/summary")
-def api_political_summary(
     exchange: str = Query("NSE"),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
-    search: Optional[str] = Query(None)
+    search: Optional[str] = Query(None),
+    limit: int = Query(100),
+    mock: Optional[int] = Query(0),
+    provider: Optional[str] = Query(None)   # debug: "tradebrains"|"nse" or None
 ):
-    """Return aggregated summary for UI (buys/sells counts & values)."""
-    try:
-        trades_resp = api_political_trades(exchange=exchange, start_date=start_date, end_date=end_date, category=category, search=search, limit=2000)
-        items = trades_resp.get("items", [])
-        buys = [t for t in items if t.get("action","").upper() == "BUY"]
-        sells = [t for t in items if t.get("action","").upper() == "SELL"]
-        total_buy_value = sum(float(t.get("value",0) or 0) for t in buys)
-        total_sell_value = sum(float(t.get("value",0) or 0) for t in sells)
-        return {
-            "totalBuys": len(buys),
-            "totalSells": len(sells),
-            "totalBuyValue": total_buy_value,
-            "totalSellValue": total_sell_value,
-            "netValue": total_buy_value - total_sell_value
-        }
-    except Exception:
-        logger.exception("api_political_summary: internal error")
-        return JSONResponse(status_code=500, content={"error": "internal"})
+    cache_key = ("political", exchange, start_date, end_date, category, search, limit, mock, provider)
+    cached = cache_get(cache_key)
+    if cached: return {"items": cached}
+
+    if mock:
+        # small development mock
+        MOCK = [
+            {"id":"m1","personName":"Mock Politician","category":"Politician","action":"BUY","stockSymbol":"RELIANCE.NS","stockName":"Reliance","quantity":1000,"value":2950000,"pricePerShare":2950,"transactionDate":"2024-01-15","exchange":"NSE","portfolioImpact":"Major"},
+            {"id":"m2","personName":"Mock Promoter","category":"Promoter","action":"SELL","stockSymbol":"TCS.NS","stockName":"TCS","quantity":500,"value":2062500,"pricePerShare":4125,"transactionDate":"2024-01-14","exchange":"NSE","portfolioImpact":"Moderate"},
+        ]
+        cache_set(cache_key, MOCK, ttl=30)
+        return {"items": MOCK}
+
+    # Try chosen provider first (debug)
+    details = []
+    trades = []
+    if provider == "tradebrains":
+        trades = fetch_tradebrains(limit=limit)
+        if not trades:
+            details.append("tradebrains empty")
+    elif provider == "nse":
+        trades = fetch_nse(limit=limit)
+        if not trades:
+            details.append("nse empty")
+    else:
+        # 1) tradebrains
+        tb = fetch_tradebrains(limit=limit)
+        if tb:
+            trades = tb
+        else:
+            details.append("tradebrains failed/empty")
+            # 2) nse
+            n = fetch_nse(limit=limit)
+            if n:
+                trades = n
+            else:
+                details.append("nse failed/empty")
+                # 3) local CSV fallback
+                csv_rows = read_csv_fallback(path="data/insider_trades.csv", limit=limit)
+                if csv_rows:
+                    trades = csv_rows
+                else:
+                    details.append("csv fallback missing/empty")
+
+    if not trades:
+        # return diagnostic details so you know why
+        logger.info("api_political_trades: providers failed: %s", details)
+        return JSONResponse(status_code=502, content={"error":"no_data_from_providers","details": details})
+
+    filtered = filter_trades(trades, exchange, start_date, end_date, category, search)
+    out = filtered[:limit]
+    cache_set(cache_key, out, ttl=300)
+    return {"items": out}

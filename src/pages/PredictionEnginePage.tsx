@@ -14,6 +14,30 @@ interface PredictionEnginePageProps {
   onNavigate?: (page: string) => void;
 }
 
+function getApiBase(): string {
+  try {
+    // Vite env
+    // @ts-ignore
+    const vite = (import.meta as any)?.env?.VITE_API_BASE;
+    if (vite) return vite;
+  } catch {}
+  try {
+    // CRA env
+    // @ts-ignore
+    if (typeof process !== "undefined" && (process as any).env?.REACT_APP_API_BASE) {
+      // @ts-ignore
+      return (process as any).env.REACT_APP_API_BASE;
+    }
+  } catch {}
+  if (
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ) {
+    return "http://localhost:8000";
+  }
+  return "";
+}
+
 export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) {
   const [selectedStock, setSelectedStock] = useState('RELIANCE');
   const [searchQuery, setSearchQuery] = useState('');
@@ -22,24 +46,45 @@ export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
 
-  const handleAnalyze = () => {
+  // Prediction data state
+  const [predictionData, setPredictionData] = useState<{
+    historical: any[];
+    prophet: any[];
+    lgbm: any[];
+  } | null>(null);
+
+  const API_BASE = getApiBase();
+
+  const handleAnalyze = async () => {
     if (!searchQuery.trim()) return;
-    
+
     setIsAnalyzing(true);
     setAnalysisProgress(0);
     setSelectedStock(searchQuery.toUpperCase());
-    
-    // Simulate analysis progress
+    setPredictionData(null);
+
+    // Simulate progress bar
+    let progress = 0;
     const progressInterval = setInterval(() => {
-      setAnalysisProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(progressInterval);
-          setIsAnalyzing(false);
-          return 100;
-        }
-        return prev + 10;
-      });
+      progress += 10;
+      setAnalysisProgress(progress);
+      if (progress >= 90) clearInterval(progressInterval);
     }, 300);
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/prediction/analyze?ticker=${encodeURIComponent(searchQuery.trim().toUpperCase())}&exchange=${exchange.toUpperCase()}&time_range=${timeRange}`
+      );
+      if (!res.ok) throw new Error("Prediction failed");
+      const json = await res.json();
+      setPredictionData(json);
+      setAnalysisProgress(100);
+    } catch (err) {
+      setPredictionData(null);
+      setAnalysisProgress(0);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const getProgressText = () => {
@@ -162,12 +207,13 @@ export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) 
                   <PredictionChart 
                     selectedStock={selectedStock}
                     isAnalyzing={isAnalyzing}
+                    predictionData={predictionData}
                   />
                 </div>
                 
                 {/* Data Table */}
                 <div className="lg:col-span-2">
-                  <PredictionDataTable selectedStock={selectedStock} />
+                  <PredictionDataTable selectedStock={selectedStock} predictionData={predictionData} />
                 </div>
               </div>
             </TabsContent>
