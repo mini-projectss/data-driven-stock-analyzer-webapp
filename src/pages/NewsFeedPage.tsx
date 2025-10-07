@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DashboardSidebar } from '../components/dashboard/DashboardSidebar';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { NewsTable } from '../components/news/NewsTable';
-import { Search, TrendingUp, Newspaper } from 'lucide-react';
+import { Search, Newspaper } from 'lucide-react';
 
 interface NewsFeedPageProps {
   onNavigate?: (page: string) => void;
@@ -11,20 +11,57 @@ interface NewsFeedPageProps {
 
 export function NewsFeedPage({ onNavigate }: NewsFeedPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [newsData, setNewsData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTrendingNews = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('http://localhost:8000/news/trending');
+      if (!response.ok) throw new Error('Failed to fetch trending news');
+      const json = await response.json();
+      setNewsData(json.news || []);
+    } catch (err: any) {
+      setError(err.message || 'Unknown error');
+      setNewsData([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchSearchNews = async (ticker: string) => {
+    if (!ticker.trim()) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`http://localhost:8000/news/search?ticker=${encodeURIComponent(ticker)}`);
+      if (!response.ok) throw new Error('Failed to fetch search news');
+      const json = await response.json();
+      setNewsData(json.news || []);
+    } catch (err: any) {
+      setError(err.message || 'Unknown error');
+      setNewsData([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // On initial load, fetch trending news
+  React.useEffect(() => {
+    fetchTrendingNews();
+  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
-    
-    setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 2000);
+    fetchSearchNews(searchQuery.trim());
   };
 
   const handleTrendingNews = () => {
     setSearchQuery('');
-    setIsLoading(true);
-    setTimeout(() => setIsLoading(false), 1500);
+    fetchTrendingNews();
   };
 
   return (
@@ -88,12 +125,18 @@ export function NewsFeedPage({ onNavigate }: NewsFeedPageProps) {
                 </Button>
               </div>
             </div>
+
+            {error && (
+              <div className="text-red-500 text-center mt-2">
+                ⚠️ {error}
+              </div>
+            )}
           </div>
         </div>
 
         <main className="flex-1 p-6 overflow-auto">
           <NewsTable 
-            searchTicker={searchQuery}
+            newsItems={newsData}
             isLoading={isLoading}
           />
         </main>

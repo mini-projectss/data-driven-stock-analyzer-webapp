@@ -30,26 +30,35 @@ interface WatchlistStock {
   addedAt: string;
 }
 
-// Helper to fetch real price data from Yahoo Finance
-async function fetchStockData(symbols: string[]): Promise<Record<string, Partial<WatchlistStock>>> {
-  const baseUrl = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + symbols.join(',');
+// This function will call your backend instead of directly Yahoo
+async function fetchStockDataFromBackend(
+  symbols: string[]
+): Promise<Record<string, Partial<WatchlistStock>>> {
   try {
-    const response = await fetch(baseUrl);
+    const response = await fetch('http://localhost:8000/watchlist/prices', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(symbols)
+    });
+    if (!response.ok) {
+      console.error('Backend price fetch failed', await response.text());
+      return {};
+    }
     const data = await response.json();
+    // Expecting data to be an array of { symbol, ltp, dailyChange, dailyChangePercent }
     const result: Record<string, Partial<WatchlistStock>> = {};
-    if (data?.quoteResponse?.result) {
-      for (const item of data.quoteResponse.result) {
-        const symbol = item.symbol;
-        result[symbol] = {
-          ltp: item.regularMarketPrice ?? 0,
-          dailyChange: item.regularMarketChange ?? 0,
-          dailyChangePercent: item.regularMarketChangePercent ?? 0,
-        };
-      }
+    for (const item of data) {
+      result[item.symbol] = {
+        ltp: item.ltp,
+        dailyChange: item.dailyChange,
+        dailyChangePercent: item.dailyChangePercent
+      };
     }
     return result;
   } catch (error) {
-    console.error("Failed to fetch stock data", error);
+    console.error('Failed to fetch stock data from backend', error);
     return {};
   }
 }
@@ -66,60 +75,58 @@ export function EnhancedWatchlist() {
   const inputWrapperRef = useRef<HTMLDivElement>(null);
   const [inputRect, setInputRect] = useState<DOMRect | null>(null);
 
-  // Listen for auth state changes and set UID
+  // Auth listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsub = onAuthStateChanged(auth, (user) => {
       if (user) {
         setUid(user.uid);
       } else {
         setUid(null);
         setWatchlistStocks([]);
-        toast.error("You must be logged in to manage your watchlist.");
+        toast.error('You must be logged in to manage your watchlist.');
       }
     });
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
 
-  // Load stock suggestions from tickers files on mount
+  // Load ticker suggestions
   useEffect(() => {
     const fetchTickers = async (url: string): Promise<string[]> => {
       try {
         const res = await fetch(url);
-        const text = await res.text();
-        return text
+        const txt = await res.text();
+        return txt
           .split('\n')
           .map(line => line.trim())
           .filter(line => line.length > 0);
-      } catch (error) {
-        console.error(`Failed to load ${url}`, error);
+      } catch (e) {
+        console.error(`Failed to load ${url}`, e);
         return [];
       }
     };
 
-    const loadAllTickers = async () => {
-      const [bseTickers, nseTickers] = await Promise.all([
+    const loadAll = async () => {
+      const [bse, nse] = await Promise.all([
         fetchTickers('/tickersbse.txt'),
         fetchTickers('/tickersnse.txt')
       ]);
-      const combinedTickers = Array.from(new Set([...bseTickers, ...nseTickers]));
-      setStockSuggestions(combinedTickers);
+      const merged = Array.from(new Set([...bse, ...nse]));
+      setStockSuggestions(merged);
     };
 
-    loadAllTickers();
+    loadAll();
   }, []);
 
-  // Update bounding rect for suggestions dropdown
+  // Suggestions dropdown positioning
   useEffect(() => {
     const updatePosition = () => {
       if (inputWrapperRef.current) {
         setInputRect(inputWrapperRef.current.getBoundingClientRect());
       }
     };
-
     updatePosition();
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
-
     return () => {
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
@@ -132,20 +139,18 @@ export function EnhancedWatchlist() {
     }
   }, [newStock, stockSuggestions]);
 
-  // Subscribe to Firestore watchlist updates when uid changes
+  // Firestore subscription
   useEffect(() => {
     if (!uid) {
       setWatchlistStocks([]);
       return;
     }
-
     const colRef = collection(db, 'users', uid, 'watchlist', 'default', 'items');
-
-    const unsubscribe = onSnapshot(
+    const unsub = onSnapshot(
       colRef,
-      (snapshot: QuerySnapshot<DocumentData>) => {
+      (snap: QuerySnapshot<DocumentData>) => {
         const stocks: WatchlistStock[] = [];
-        snapshot.forEach(docSnap => {
+        snap.forEach(docSnap => {
           const data = docSnap.data();
           stocks.push({
             symbol: data.symbol,
@@ -159,19 +164,18 @@ export function EnhancedWatchlist() {
         });
         setWatchlistStocks(stocks);
       },
-      (error) => {
-        console.error('Failed to fetch watchlist', error);
+      (err) => {
+        console.error('Watchlist fetch error', err);
         toast.error('Failed to load your watchlist.');
       }
     );
-
-    return () => unsubscribe();
+    return () => unsub();
   }, [uid]);
 
   const filteredSuggestions = newStock
-    ? stockSuggestions.filter(stock =>
-        stock.toLowerCase().includes(newStock.toLowerCase()) &&
-        !watchlistStocks.some(w => w.symbol.toLowerCase() === stock.toLowerCase())
+    ? stockSuggestions.filter(s =>
+        s.toLowerCase().includes(newStock.toLowerCase()) &&
+        !watchlistStocks.some(w => w.symbol.toLowerCase() === s.toLowerCase())
       )
     : [];
 
@@ -179,33 +183,30 @@ export function EnhancedWatchlist() {
     stock.symbol.toLowerCase().includes(searchFilter.toLowerCase())
   );
 
-  // Add stock to Firestore with live data
+  // Add stock
   const handleAddStock = async () => {
     if (!uid) {
       toast.error('Please log in to add stocks.');
       return;
     }
+    const symbol = newStock.trim().toUpperCase();
+    if (!symbol) return;
 
-    const trimmedStock = newStock.trim().toUpperCase();
-    const alreadyInWatchlist = watchlistStocks.some(
-      stock => stock.symbol.toLowerCase() === trimmedStock.toLowerCase()
-    );
-    const isValid = stockSuggestions.some(
-      s => s.toLowerCase() === trimmedStock.toLowerCase()
-    );
-
-    if (!trimmedStock || alreadyInWatchlist || !isValid) {
-      toast.error('Invalid or duplicate stock symbol');
+    if (watchlistStocks.some(s => s.symbol === symbol)) {
+      toast.error('Stock already in watchlist');
+      return;
+    }
+    if (!stockSuggestions.some(s => s.toUpperCase() === symbol)) {
+      toast.error('Invalid symbol');
       return;
     }
 
     setIsAdding(true);
     try {
-      const fetched = await fetchStockData([trimmedStock]);
-      const live = fetched[trimmedStock] ?? {};
-
-      const newWatchlistStock: WatchlistStock = {
-        symbol: trimmedStock,
+      const fetched = await fetchStockDataFromBackend([symbol]);
+      const live = fetched[symbol] ?? {};
+      const newItem: WatchlistStock = {
+        symbol,
         ltp: live.ltp ?? 0,
         dailyChange: live.dailyChange ?? 0,
         dailyChangePercent: live.dailyChangePercent ?? 0,
@@ -213,51 +214,49 @@ export function EnhancedWatchlist() {
         predictionConfidence: Math.random() * 30 + 65,
         addedAt: new Date().toISOString()
       };
-
       await setDoc(
-        doc(db, 'users', uid, 'watchlist', 'default', 'items', trimmedStock),
-        newWatchlistStock
+        doc(db, 'users', uid, 'watchlist', 'default', 'items', symbol),
+        newItem
       );
-
       setNewStock('');
-      toast.success(`${trimmedStock} added to watchlist`);
-    } catch (error) {
-      console.error('Error adding stock', error);
+      toast.success(`${symbol} added`);
+    } catch (e) {
+      console.error('Error adding stock', e);
       toast.error('Failed to add stock');
     } finally {
       setIsAdding(false);
     }
   };
 
-  // Remove stock from Firestore
+  // Remove stock
   const handleRemoveStock = async (symbol: string) => {
     if (!uid) {
       toast.error('Please log in to remove stocks.');
       return;
     }
-
     try {
       await deleteDoc(doc(db, 'users', uid, 'watchlist', 'default', 'items', symbol));
-      toast.success(`${symbol} removed from watchlist`);
-    } catch (error) {
-      console.error('Error removing stock', error);
+      toast.success(`${symbol} removed`);
+    } catch (e) {
+      console.error('Error removing', e);
       toast.error('Failed to remove stock');
     }
   };
 
-  // Refresh stock prices using Yahoo Finance
+  // Refresh live prices
   const handleRefreshPrices = async () => {
     if (!uid) {
       toast.error('Please log in to refresh data.');
       return;
     }
+    if (watchlistStocks.length === 0) return;
 
     setIsRefreshing(true);
     try {
-      const symbols = watchlistStocks.map(stock => stock.symbol);
-      const fetched = await fetchStockData(symbols);
+      const symbols = watchlistStocks.map(s => s.symbol);
+      const fetched = await fetchStockDataFromBackend(symbols);
 
-      const updatedStocks = watchlistStocks.map(stock => {
+      const updated = watchlistStocks.map(stock => {
         const live = fetched[stock.symbol] ?? {};
         return {
           ...stock,
@@ -269,48 +268,53 @@ export function EnhancedWatchlist() {
         };
       });
 
-      await Promise.all(updatedStocks.map(stock =>
-        setDoc(doc(db, 'users', uid, 'watchlist', 'default', 'items', stock.symbol), stock)
+      // Save back to Firestore
+      await Promise.all(updated.map(stock =>
+        setDoc(
+          doc(db, 'users', uid, 'watchlist', 'default', 'items', stock.symbol),
+          stock
+        )
       ));
-
-      toast.success('Prices and predictions refreshed');
-    } catch (error) {
-      console.error('Error refreshing data', error);
-      toast.error('Failed to refresh data');
+      setWatchlistStocks(updated);
+      toast.success('Prices refreshed');
+    } catch (e) {
+      console.error('Error refreshing data', e);
+      toast.error('Failed to refresh prices');
     } finally {
       setIsRefreshing(false);
     }
   };
 
-  const getPredictionColor = (prediction: string) => {
-    switch (prediction) {
-      case 'Buy': return 'var(--success-green)';
-      case 'Sell': return 'var(--error-red)';
-      default: return '#FF9800';
+  const getPredictionColor = (pred: string) => {
+    switch (pred) {
+      case 'Buy':
+        return 'var(--success-green)';
+      case 'Sell':
+        return 'var(--error-red)';
+      default:
+        return '#FF9800';
     }
   };
 
   const handleViewStock = (symbol: string) => {
-    toast.info(`Viewing details for ${symbol}`);
+    toast.info(`Viewing ${symbol}`);
   };
 
   return (
     <div className="space-y-6">
-      {/* Add Stock Section */}
+      {/* Add Stock */}
       <Card className="glass-card p-6">
         <h2 className="text-xl text-white font-semibold mb-4">Add Stock to Watchlist</h2>
-
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 relative" ref={inputWrapperRef}>
             <Input
-              placeholder="Enter stock symbol (e.g., RELIANCE.NS)"
+              placeholder="Enter stock symbol"
               value={newStock}
-              onChange={(e) => setNewStock(e.target.value)}
+              onChange={e => setNewStock(e.target.value)}
               className="bg-input border-white/20 text-white placeholder:text-neutral-text/60"
-              onKeyPress={(e) => e.key === 'Enter' && handleAddStock()}
+              onKeyPress={e => e.key === 'Enter' ? handleAddStock() : null}
             />
-
-            {filteredSuggestions.length > 0 && newStock && inputRect && (
+            {filteredSuggestions.length > 0 && inputRect && (
               <Portal>
                 <div
                   className="z-[9999] bg-card border border-white/20 rounded-lg shadow-lg max-h-40 overflow-y-auto"
@@ -321,23 +325,19 @@ export function EnhancedWatchlist() {
                     width: inputRect.width
                   }}
                 >
-                  {filteredSuggestions.slice(0, 5).map(suggestion => (
+                  {filteredSuggestions.slice(0, 5).map(sug => (
                     <button
-                      key={suggestion}
-                      onClick={() => {
-                        setNewStock(suggestion);
-                        setTimeout(() => handleAddStock(), 100);
-                      }}
-                      className="w-full text-left px-4 py-2 text-white hover:bg-white/10 transition-colors"
+                      key={sug}
+                      onClick={() => setNewStock(sug)}
+                      className="w-full px-4 py-2 text-white text-left hover:bg-white/10 transition-colors"
                     >
-                      {suggestion}
+                      {sug}
                     </button>
                   ))}
                 </div>
               </Portal>
             )}
           </div>
-
           <Button
             onClick={handleAddStock}
             disabled={isAdding || !newStock.trim()}
@@ -345,45 +345,30 @@ export function EnhancedWatchlist() {
             style={{ backgroundColor: 'var(--accent-teal)' }}
           >
             <Plus className="w-4 h-4 mr-2" />
-            {isAdding ? 'Adding...' : 'Add'}
+            {isAdding ? 'Adding…' : 'Add'}
           </Button>
         </div>
       </Card>
 
-      {/* Watchlist Table */}
-      <Card className="glass-card p-6" style={{ overflow: 'visible', position: 'relative', zIndex: 0 }}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <h2 className="text-xl text-white font-semibold">
-            Watchlist ({filteredWatchlist.length})
-          </h2>
-
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-text/60" />
-              <Input
-                placeholder="Search stocks..."
-                value={searchFilter}
-                onChange={(e) => setSearchFilter(e.target.value)}
-                className="pl-10 bg-input border-white/20 text-white placeholder:text-neutral-text/60 sm:w-48"
-              />
-            </div>
-
-            <Button
-              onClick={handleRefreshPrices}
-              disabled={isRefreshing}
-              variant="outline"
-              className="border-white/20 text-neutral-text hover:border-accent-teal hover:text-accent-teal"
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-              Refresh Prices
-            </Button>
-          </div>
+      {/* Watchlist */}
+      <Card className="glass-card p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl text-white font-semibold">Watchlist ({filteredWatchlist.length})</h2>
+          <Button
+            onClick={handleRefreshPrices}
+            disabled={isRefreshing}
+            variant="outline"
+            className="border-white/20 text-neutral-text hover:border-accent-teal hover:text-accent-teal"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh Prices
+          </Button>
         </div>
 
         {filteredWatchlist.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-neutral-text/80 mb-4">
-              {searchFilter ? `No stocks found matching "${searchFilter}"` : 'Your watchlist is empty'}
+              {searchFilter ? `No stocks match "${searchFilter}"` : 'Your watchlist is empty'}
             </p>
             <p className="text-neutral-text/60 text-sm">
               Add stocks above to start tracking their performance
@@ -411,9 +396,7 @@ export function EnhancedWatchlist() {
                       <TableCell className="font-semibold text-white">{stock.symbol}</TableCell>
                       <TableCell className="text-white font-semibold">{`\u20B9 ${stock.ltp.toFixed(2)}`}</TableCell>
                       <TableCell
-                        className={`font-medium ${
-                          isPositive ? 'text-success-green' : 'text-error-red'
-                        }`}
+                        className={`font-medium ${isPositive ? 'text-success-green' : 'text-error-red'}`}
                       >
                         {isPositive ? <TrendingUp className="inline w-4 h-4 mr-1" /> : <TrendingDown className="inline w-4 h-4 mr-1" />}
                         {stock.dailyChangePercent.toFixed(2)}%
