@@ -15,6 +15,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+from watchlist_api import router as watchlist_router
+app.include_router(watchlist_router)
 
 from news_api import router as news_router
 app.include_router(news_router)
