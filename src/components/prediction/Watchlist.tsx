@@ -5,15 +5,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Badge } from '../ui/badge';
-import { RefreshCw, Filter } from 'lucide-react';
+import { RefreshCw, Filter, Star } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { auth, db } from '../../firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { collection, onSnapshot, QuerySnapshot, DocumentData } from 'firebase/firestore';
 
 function getApiBase(): string {
-  try {
-    // vite env
-    // @ts-ignore
-    const vite = (import.meta as any)?.env?.VITE_API_BASE;
-    if (vite) return vite;
-  } catch {}
+  const vite = (import.meta as any)?.env?.VITE_API_BASE;
+  if (vite) return vite;
   if (
     typeof window !== "undefined" &&
     (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
@@ -40,9 +41,8 @@ interface ScreenerData {
   confidence: number;
 }
 
-export function MarketScreener() {
+export function Watchlist() {
   const [filters, setFilters] = useState({
-    exchange: 'all',
     date: 'latest',
     trend: 'all',
     ohlc: 'close'
@@ -52,36 +52,85 @@ export function MarketScreener() {
   const [sortKey, setSortKey] = useState<keyof ScreenerData | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [error, setError] = useState("");
+  const [user, setUser] = useState<User | null>(null);
+  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([]);
 
   const API_BASE = getApiBase();
 
+  // Auth listener
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setUser(user);
+      if (!user) {
+        setWatchlistSymbols([]);
+        setData([]);
+        setError("Please log in to view your watchlist predictions.");
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Firestore watchlist subscription
+  useEffect(() => {
+    if (!user) return;
+
+    const colRef = collection(db, 'users', user.uid, 'watchlist', 'default', 'items');
+    const unsub = onSnapshot(
+      colRef,
+      (snap: QuerySnapshot<DocumentData>) => {
+        const symbols: string[] = [];
+        snap.forEach(docSnap => {
+          symbols.push(docSnap.data().symbol);
+        });
+        setWatchlistSymbols(symbols);
+      },
+      (err) => {
+        console.error('Watchlist fetch error', err);
+        toast.error('Failed to load your watchlist symbols.');
+        setError('Failed to load your watchlist symbols.');
+      }
+    );
+    return () => unsub();
+  }, [user]);
+
   async function fetchData() {
+    if (!user || watchlistSymbols.length === 0) {
+      setData([]);
+      if (user && watchlistSymbols.length === 0) {
+        setError("Your watchlist is empty. Add stocks to see predictions.");
+      }
+      return;
+    }
+
     try {
       setError("");
       const params = new URLSearchParams({
-        exchange: filters.exchange,
         date: filters.date,
         trend: filters.trend,
         ohlc: filters.ohlc
       });
-      const url = `${API_BASE}/api/marketscreener?${params}`;
-      const res = await fetch(url);
+      const url = `${API_BASE}/api/watchlist/predictions?${params}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(watchlistSymbols)
+      });
       const json = await res.json();
       if (!json || json.error || !json.items) {
-        setError(json?.error || "No data available");
+        setError(json?.error || "No prediction data available for your watchlist");
         setData([]);
       } else {
         setData(json.items || []);
       }
     } catch (e) {
-      setError("Failed to fetch data");
+      setError("Failed to fetch prediction data");
       setData([]);
     }
   }
 
   useEffect(() => {
     fetchData();
-  }, [filters.exchange, filters.date, filters.trend, filters.ohlc]);
+  }, [filters.date, filters.trend, filters.ohlc, watchlistSymbols, user]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -136,17 +185,6 @@ export function MarketScreener() {
           </div>
 
           <div className="flex flex-wrap gap-4 flex-1">
-            <Select value={filters.exchange} onValueChange={(value: string) => setFilters(prev => ({...prev, exchange: value}))}>
-              <SelectTrigger className="w-32 bg-input border-white/20 text-white">
-                <SelectValue placeholder="Exchange" />
-              </SelectTrigger>
-              <SelectContent className="bg-card border-white/20">
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="NSE">NSE</SelectItem>
-                <SelectItem value="BSE">BSE</SelectItem>
-              </SelectContent>
-            </Select>
-
             <Select value={filters.ohlc} onValueChange={(value: string) => setFilters(prev => ({...prev, ohlc: value}))}>
               <SelectTrigger className="w-32 bg-input border-white/20 text-white">
                 <SelectValue placeholder="OHLC" />
@@ -195,16 +233,19 @@ export function MarketScreener() {
       {/* Screener Results */}
       <Card className="glass-card p-6">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg text-white font-semibold">
-            Market Screener Results
-          </h3>
+          <div className="flex items-center space-x-3">
+            <Star className="w-5 h-5 text-yellow-400" />
+            <h3 className="text-lg text-white font-semibold">
+              Watchlist Predictions
+            </h3>
+          </div>
           <Badge variant="outline" className="border-accent-teal/30 text-accent-teal">
             {sortedData.length} stocks found
           </Badge>
         </div>
 
         {error ? (
-          <p className="text-error-red text-sm">{error}</p>
+          <p className="text-error-red text-center py-8">{error}</p>
         ) : (
           <div className="overflow-x-auto">
             <div
@@ -256,13 +297,13 @@ export function MarketScreener() {
                           className="font-medium"
                           style={{ color: 'var(--success-green)' }}
                         > 
-                          ₹{stock[`prophet_${filters.ohlc}` as keyof ScreenerData] as number}
+                          ₹{(stock[`prophet_${filters.ohlc}` as keyof ScreenerData] as number).toFixed(2)}
                         </TableCell>
                         <TableCell
                           className="font-medium"
                           style={{ color: '#FF9800' }}
                         >
-                          ₹{stock[`lgbm_${filters.ohlc}` as keyof ScreenerData] as number}
+                          ₹{(stock[`lgbm_${filters.ohlc}` as keyof ScreenerData] as number).toFixed(2)}
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -290,7 +331,7 @@ export function MarketScreener() {
                         colSpan={7}
                         className="text-center text-neutral-text py-4"
                       >
-                        No data available
+                        {user ? "Loading predictions for your watchlist..." : "Please log in."}
                       </TableCell>
                     </TableRow>
                   )}

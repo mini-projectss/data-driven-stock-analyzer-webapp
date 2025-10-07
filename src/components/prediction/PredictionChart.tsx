@@ -16,6 +16,14 @@ interface PredictionChartProps {
 }
 
 export function PredictionChart({ selectedStock, isAnalyzing, predictionData }: PredictionChartProps) {
+  // Value pills state
+  const valuePills: { key: 'open' | 'high' | 'low' | 'close'; label: string }[] = [
+    { key: 'open', label: 'Open' },
+    { key: 'high', label: 'High' },
+    { key: 'low', label: 'Low' },
+    { key: 'close', label: 'Close' }
+  ];
+  const [selectedValueKey, setSelectedValueKey] = useState<'open' | 'high' | 'low' | 'close'>('close');
   const [showHistorical, setShowHistorical] = useState(true);
   const [showProphet, setShowProphet] = useState(true);
   const [showLightGBM, setShowLightGBM] = useState(true);
@@ -28,7 +36,7 @@ export function PredictionChart({ selectedStock, isAnalyzing, predictionData }: 
       (predictionData.historical || []).forEach(d => {
         dataMap[d.date] = {
           date: d.date,
-          historical: d.close,
+          historical: d[selectedValueKey],
           prophet: null,
           lightgbm: null,
           isPrediction: false
@@ -36,12 +44,12 @@ export function PredictionChart({ selectedStock, isAnalyzing, predictionData }: 
       });
       (predictionData.prophet || []).forEach(d => {
         if (!dataMap[d.date]) dataMap[d.date] = { date: d.date };
-        dataMap[d.date].prophet = d.close;
+        dataMap[d.date].prophet = d[selectedValueKey];
         dataMap[d.date].isPrediction = true;
       });
       (predictionData.lgbm || []).forEach(d => {
         if (!dataMap[d.date]) dataMap[d.date] = { date: d.date };
-        dataMap[d.date].lightgbm = d.close;
+        dataMap[d.date].lightgbm = d[selectedValueKey];
         dataMap[d.date].isPrediction = true;
       });
       // Sort by date (parse as Date for correct order)
@@ -77,15 +85,37 @@ export function PredictionChart({ selectedStock, isAnalyzing, predictionData }: 
       });
     }
     return data;
-  }, [predictionData]);
+  }, [predictionData, selectedValueKey]);
 
   // For header stats
-  const currentPrice = chartData.find(d => !d.isPrediction && d.historical)?.historical || 2850;
-  const prophetPrice = chartData.find(d => d.prophet)?.prophet || 2870;
-  const lightgbmPrice = chartData.find(d => d.lightgbm)?.lightgbm || 2865;
+  const currentRow = chartData.find(d => !d.isPrediction && d.historical !== null && d.historical !== undefined);
+  const currentValue = currentRow ? currentRow.historical : 2850;
+  const prophetRow = chartData.find(d => d.prophet !== null && d.prophet !== undefined);
+  const prophetValue = prophetRow ? prophetRow.prophet : 2870;
+  const lightgbmRow = chartData.find(d => d.lightgbm !== null && d.lightgbm !== undefined);
+  const lightgbmValue = lightgbmRow ? lightgbmRow.lightgbm : 2865;
 
   return (
     <Card className="glass-card p-6">
+      {/* Value Pills */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {valuePills.map((pill) => (
+          <Badge
+            key={pill.key}
+            variant={selectedValueKey === pill.key ? "default" : "outline"}
+            className={`cursor-pointer transition-colors ${
+              selectedValueKey === pill.key
+                ? 'bg-accent-teal text-white border-accent-teal'
+                : 'border-white/20 text-neutral-text hover:border-accent-teal hover:text-accent-teal'
+            }`}
+            onClick={() => setSelectedValueKey(pill.key)}
+            style={selectedValueKey === pill.key ? { backgroundColor: 'var(--accent-teal)' } : {}}
+          >
+            {pill.label}
+          </Badge>
+        ))}
+      </div>
+
       {/* Chart Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 space-y-4 lg:space-y-0">
         <div>
@@ -95,24 +125,32 @@ export function PredictionChart({ selectedStock, isAnalyzing, predictionData }: 
           <div className="flex flex-wrap gap-4 text-sm">
             <div className="flex items-center space-x-2">
               <span className="text-neutral-text/80">Current:</span>
-              <span className="text-white font-semibold">₹{currentPrice.toFixed(2)}</span>
+              <span className="text-white font-semibold">
+                {selectedValueKey === "volume"
+                  ? (currentValue || 0).toLocaleString()
+                  : `₹${(currentValue || 0).toFixed(2)}`}
+              </span>
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-neutral-text/80">Prophet:</span>
               <span 
                 className="font-semibold"
-                style={{ color: prophetPrice > currentPrice ? 'var(--success-green)' : 'var(--error-red)' }}
+                style={{ color: prophetValue > currentValue ? 'var(--success-green)' : 'var(--error-red)' }}
               >
-                ₹{prophetPrice.toFixed(2)}
+                {selectedValueKey === "volume"
+                  ? (prophetValue || 0).toLocaleString()
+                  : `₹${(prophetValue || 0).toFixed(2)}`}
               </span>
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-neutral-text/80">LightGBM:</span>
               <span 
                 className="font-semibold"
-                style={{ color: lightgbmPrice > currentPrice ? 'var(--success-green)' : 'var(--error-red)' }}
+                style={{ color: lightgbmValue > currentValue ? 'var(--success-green)' : 'var(--error-red)' }}
               >
-                ₹{lightgbmPrice.toFixed(2)}
+                {selectedValueKey === "volume"
+                  ? (lightgbmValue || 0).toLocaleString()
+                  : `₹${(lightgbmValue || 0).toFixed(2)}`}
               </span>
             </div>
           </div>
@@ -230,7 +268,12 @@ export function PredictionChart({ selectedStock, isAnalyzing, predictionData }: 
                 }
                 return d;
               }}
-              formatter={(value: any, name: string) => [`₹${Number(value).toFixed(2)}`, name.charAt(0).toUpperCase() + name.slice(1)]}
+              formatter={(value: any, name: string) => [
+                selectedValueKey === "volume"
+                  ? `${Number(value).toLocaleString()}`
+                  : `₹${Number(value).toFixed(2)}`,
+                name.charAt(0).toUpperCase() + name.slice(1)
+              ]}
             />
             <Legend />
             

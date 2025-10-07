@@ -41,6 +41,9 @@ app.include_router(political_router)
 from prediction_api import router as prediction_router
 app.include_router(prediction_router)
 
+from marketscreener_api import router as marketscreener_router
+app.include_router(marketscreener_router)
+
 
 @app.on_event("startup")
 def start_background_tasks():
