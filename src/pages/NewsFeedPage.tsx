@@ -84,7 +84,7 @@ export function NewsFeedPage({ onNavigate }: NewsFeedPageProps) {
               <div className="flex items-center justify-center space-x-3 mb-4">
                 <Newspaper className="w-8 h-8 text-accent-teal" />
                 <h1 className="text-3xl text-white font-semibold">
-                  📊 Market News & Sentiment Dashboard
+                   Market News & Sentiment Dashboard
                 </h1>
               </div>
               <p className="text-neutral-text/80 max-w-2xl mx-auto">
@@ -112,7 +112,7 @@ export function NewsFeedPage({ onNavigate }: NewsFeedPageProps) {
                   className="bg-blue-600 hover:bg-blue-700 text-white"
                   style={{ backgroundColor: '#2563eb' }}
                 >
-                  🔍 Search
+                   Search
                 </Button>
                 
                 <Button 
@@ -121,7 +121,7 @@ export function NewsFeedPage({ onNavigate }: NewsFeedPageProps) {
                   variant="outline"
                   className="border-orange-500 text-orange-500 hover:bg-orange-500 hover:text-white"
                 >
-                  🔥 Trending News
+                   Trending News
                 </Button>
               </div>
             </div>
