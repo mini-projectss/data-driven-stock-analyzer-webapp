@@ -1,8 +1,20 @@
 # requirements.txt
-fastapi==0.111.0
-uvicorn[standard]==0.29.0
-pandas==2.2.2
-yfinance==0.2.38
-python-socketio==5.11.2
-websockets==12.0
-aiofiles==23.2.1
+fastapi
+uvicorn
+pandas
+yfinance
+python-socketio
+websockets
+aiofiles
+numpy
+scipy
+scikit-learn
+matplotlib
+seaborn
+pytest
+pytest-asyncio
+httpx
+python-dotenv
+prophet
+lightgbm
+nltk

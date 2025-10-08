@@ -4,6 +4,7 @@ from header_api import advdec_updater
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+
 app = FastAPI()
 
 # allow your dev frontend origin. Be specific in production.
@@ -14,6 +15,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+from watchlist_api import router as watchlist_router
+app.include_router(watchlist_router)
+
+from news_api import router as news_router
+app.include_router(news_router)
 
 # import and include our header routes
 from header_api import router as header_router
@@ -31,6 +37,12 @@ app.include_router(datatable_router)
 # main.py (excerpt near other routers)
 from political_api import router as political_router
 app.include_router(political_router)
+
+from prediction_api import router as prediction_router
+app.include_router(prediction_router)
+
+from marketscreener_api import router as marketscreener_router
+app.include_router(marketscreener_router)
 
 
 @app.on_event("startup")

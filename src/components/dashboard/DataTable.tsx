@@ -139,7 +139,7 @@ export function DataTable({ exchange, onStockSelect }: DataTableProps) {
                     const isPositive = stock.change >= 0;
                     return (
                       <TableRow
-                        key={stock.instrument}
+                        key={`${stock.instrument}-${exchange}`}
                         className="border-white/10 hover:bg-white/5 cursor-pointer transition-colors"
                       >
                         <TableCell className="text-white font-medium">

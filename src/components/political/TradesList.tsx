@@ -106,12 +106,12 @@ export function TradesList({ trades, onStockClick }: TradesListProps) {
             }}
           >
             {/* Header with Avatar and Person Info */}
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex items-start mb-4 min-w-0">
               <div className="flex items-center space-x-3">
                 <Avatar className="w-12 h-12 border-2 border-white/20">
-                  <AvatarFallback 
+                  <AvatarFallback
                     className="text-white font-semibold"
-                    style={{ 
+                    style={{
                       background: `linear-gradient(135deg, ${getCategoryColor(trade.category)}, #302b63)`
                     }}
                   >
@@ -122,32 +122,32 @@ export function TradesList({ trades, onStockClick }: TradesListProps) {
                   <h3 className="text-white font-semibold truncate" title={trade.personName}>
                     {trade.personName}
                   </h3>
-                  <Badge 
-                    variant="outline" 
-                    className="text-xs mt-1"
-                    style={{ 
-                      borderColor: getCategoryColor(trade.category), 
-                      color: getCategoryColor(trade.category) 
-                    }}
-                  >
-                    {trade.category}
-                  </Badge>
+                  <div className="flex items-center space-x-2 mt-1">
+                    <Badge
+                      variant="outline"
+                      className="text-xs"
+                      style={{
+                        borderColor: getCategoryColor(trade.category),
+                        color: getCategoryColor(trade.category)
+                      }}
+                    >
+                      {trade.category}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className="font-semibold text-xs"
+                      style={{
+                        borderColor: actionColor,
+                        color: actionColor,
+                        backgroundColor: `${actionColor}15`
+                      }}
+                    >
+                      <ActionIcon className="w-3 h-3 mr-1" />
+                      {trade.action}
+                    </Badge>
+                  </div>
                 </div>
               </div>
-              
-              {/* Action Badge */}
-              <Badge 
-                variant="outline"
-                className="font-semibold"
-                style={{ 
-                  borderColor: actionColor, 
-                  color: actionColor,
-                  backgroundColor: `${actionColor}15`
-                }}
-              >
-                <ActionIcon className="w-3 h-3 mr-1" />
-                {trade.action}
-              </Badge>
             </div>
 
             {/* Stock Information */}

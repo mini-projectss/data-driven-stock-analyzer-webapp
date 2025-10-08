@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -7,77 +7,109 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from '../ui/badge';
 import { RefreshCw, Filter } from 'lucide-react';
 
+function getApiBase(): string {
+  try {
+    // vite env
+    // @ts-ignore
+    const vite = (import.meta as any)?.env?.VITE_API_BASE;
+    if (vite) return vite;
+  } catch {}
+  if (
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ) {
+    return "http://localhost:8000";
+  }
+  return "";
+}
+
+interface ScreenerData {
+  symbol: string;
+  exchange: string;
+  date: string;
+  prophet_open: number;
+  prophet_high: number;
+  prophet_low: number;
+  prophet_close: number;
+  lgbm_open: number;
+  lgbm_high: number;
+  lgbm_low: number;
+  lgbm_close: number;
+  selected_value: number;
+  trend: string;
+  confidence: number;
+}
+
 export function MarketScreener() {
   const [filters, setFilters] = useState({
     exchange: 'all',
-    model: 'all',
-    date: 'today',
-    trend: 'all'
+    date: 'latest',
+    trend: 'all',
+    ohlc: 'close'
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [data, setData] = useState<ScreenerData[]>([]);
+  const [sortKey, setSortKey] = useState<keyof ScreenerData | null>(null);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [error, setError] = useState("");
 
-  const mockScreenerData = [
-    {
-      symbol: 'RELIANCE',
-      exchange: 'NSE',
-      currentPrice: 2850.75,
-      prophetPrice: 2875.30,
-      lightgbmPrice: 2868.90,
-      trend: 'bullish',
-      confidence: 87.5,
-      change: 24.55,
-      volume: '2.4M'
-    },
-    {
-      symbol: 'TCS',
-      exchange: 'NSE',
-      currentPrice: 4125.30,
-      prophetPrice: 4145.80,
-      lightgbmPrice: 4138.20,
-      trend: 'bullish',
-      confidence: 82.1,
-      change: 18.90,
-      volume: '1.8M'
-    },
-    {
-      symbol: 'INFY',
-      exchange: 'NSE',
-      currentPrice: 1742.20,
-      prophetPrice: 1735.60,
-      lightgbmPrice: 1738.45,
-      trend: 'bearish',
-      confidence: 79.3,
-      change: -8.25,
-      volume: '3.1M'
-    },
-    {
-      symbol: 'HDFC',
-      exchange: 'BSE',
-      currentPrice: 1685.90,
-      prophetPrice: 1695.30,
-      lightgbmPrice: 1692.15,
-      trend: 'bullish',
-      confidence: 75.8,
-      change: 7.40,
-      volume: '1.5M'
-    },
-    {
-      symbol: 'ICICIBANK',
-      exchange: 'NSE',
-      currentPrice: 1124.75,
-      prophetPrice: 1118.20,
-      lightgbmPrice: 1121.80,
-      trend: 'neutral',
-      confidence: 71.2,
-      change: -2.55,
-      volume: '2.7M'
+  const API_BASE = getApiBase();
+
+  async function fetchData() {
+    try {
+      setError("");
+      const params = new URLSearchParams({
+        exchange: filters.exchange,
+        date: filters.date,
+        trend: filters.trend,
+        ohlc: filters.ohlc
+      });
+      const url = `${API_BASE}/api/marketscreener?${params}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (!json || json.error || !json.items) {
+        setError(json?.error || "No data available");
+        setData([]);
+      } else {
+        setData(json.items || []);
+      }
+    } catch (e) {
+      setError("Failed to fetch data");
+      setData([]);
     }
-  ];
+  }
+
+  useEffect(() => {
+    fetchData();
+  }, [filters.exchange, filters.date, filters.trend, filters.ohlc]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 2000);
+    fetchData().finally(() => setIsRefreshing(false));
   };
+
+  function handleSort(key: keyof ScreenerData) {
+    if (sortKey === key) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortOrder('asc');
+    }
+  }
+
+  const sortedData = React.useMemo(() => {
+    if (!sortKey) return data;
+    return [...data].sort((a, b) => {
+      const av = a[sortKey as keyof ScreenerData];
+      const bv = b[sortKey as keyof ScreenerData];
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortOrder === 'asc' ? av - bv : bv - av;
+      }
+      return sortOrder === 'asc'
+        ? String(av).localeCompare(String(bv))
+        : String(bv).localeCompare(String(av));
+    });
+  }, [data, sortKey, sortOrder]);
 
   const getTrendColor = (trend: string) => {
     switch (trend) {
@@ -102,31 +134,32 @@ export function MarketScreener() {
             <Filter className="w-4 h-4 text-neutral-text" />
             <span className="text-white font-medium">Filters:</span>
           </div>
-          
+
           <div className="flex flex-wrap gap-4 flex-1">
-            <Select value={filters.exchange} onValueChange={(value) => setFilters(prev => ({...prev, exchange: value}))}>
+            <Select value={filters.exchange} onValueChange={(value: string) => setFilters(prev => ({...prev, exchange: value}))}>
               <SelectTrigger className="w-32 bg-input border-white/20 text-white">
                 <SelectValue placeholder="Exchange" />
               </SelectTrigger>
               <SelectContent className="bg-card border-white/20">
                 <SelectItem value="all">All</SelectItem>
-                <SelectItem value="nse">NSE</SelectItem>
-                <SelectItem value="bse">BSE</SelectItem>
+                <SelectItem value="NSE">NSE</SelectItem>
+                <SelectItem value="BSE">BSE</SelectItem>
               </SelectContent>
             </Select>
 
-            <Select value={filters.model} onValueChange={(value) => setFilters(prev => ({...prev, model: value}))}>
+            <Select value={filters.ohlc} onValueChange={(value: string) => setFilters(prev => ({...prev, ohlc: value}))}>
               <SelectTrigger className="w-32 bg-input border-white/20 text-white">
-                <SelectValue placeholder="Model" />
+                <SelectValue placeholder="OHLC" />
               </SelectTrigger>
               <SelectContent className="bg-card border-white/20">
-                <SelectItem value="all">All Models</SelectItem>
-                <SelectItem value="prophet">Prophet</SelectItem>
-                <SelectItem value="lightgbm">LightGBM</SelectItem>
+                <SelectItem value="open">Open</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="close">Close</SelectItem>
               </SelectContent>
             </Select>
 
-            <Select value={filters.trend} onValueChange={(value) => setFilters(prev => ({...prev, trend: value}))}>
+            <Select value={filters.trend} onValueChange={(value: string) => setFilters(prev => ({...prev, trend: value}))}>
               <SelectTrigger className="w-32 bg-input border-white/20 text-white">
                 <SelectValue placeholder="Trend" />
               </SelectTrigger>
@@ -137,6 +170,14 @@ export function MarketScreener() {
                 <SelectItem value="neutral">Neutral</SelectItem>
               </SelectContent>
             </Select>
+
+            <Input
+              type="date"
+              value={filters.date === 'latest' ? '' : filters.date}
+              onChange={(e) => setFilters(prev => ({...prev, date: e.target.value || 'latest'}))}
+              className="w-40 bg-input border-white/20 text-white"
+              placeholder="Date (latest)"
+            />
           </div>
 
           <Button
@@ -158,92 +199,106 @@ export function MarketScreener() {
             Market Screener Results
           </h3>
           <Badge variant="outline" className="border-accent-teal/30 text-accent-teal">
-            {mockScreenerData.length} stocks found
+            {sortedData.length} stocks found
           </Badge>
         </div>
 
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-white/10 hover:bg-transparent">
-                <TableHead className="text-neutral-text">Symbol</TableHead>
-                <TableHead className="text-neutral-text">Exchange</TableHead>
-                <TableHead className="text-neutral-text">Current</TableHead>
-                <TableHead className="text-neutral-text">Prophet</TableHead>
-                <TableHead className="text-neutral-text">LightGBM</TableHead>
-                <TableHead className="text-neutral-text">Trend</TableHead>
-                <TableHead className="text-neutral-text">Confidence</TableHead>
-                <TableHead className="text-neutral-text">Change</TableHead>
-                <TableHead className="text-neutral-text">Volume</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mockScreenerData.map((stock) => {
-                const isPositiveChange = stock.change >= 0;
-                
-                return (
-                  <TableRow 
-                    key={stock.symbol} 
-                    className="border-white/10 hover:bg-white/5 cursor-pointer transition-colors"
-                  >
-                    <TableCell className="text-white font-semibold">
-                      {stock.symbol}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="border-white/20 text-neutral-text text-xs">
-                        {stock.exchange}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-white font-medium">
-                      ₹{stock.currentPrice.toFixed(2)}
-                    </TableCell>
-                    <TableCell 
-                      className="font-medium"
-                      style={{ color: 'var(--success-green)' }}
-                    >
-                      ₹{stock.prophetPrice.toFixed(2)}
-                    </TableCell>
-                    <TableCell 
-                      className="font-medium"
-                      style={{ color: '#FF9800' }}
-                    >
-                      ₹{stock.lightgbmPrice.toFixed(2)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant="outline" 
-                        className="text-xs capitalize"
-                        style={{ 
-                          borderColor: getTrendColor(stock.trend), 
-                          color: getTrendColor(stock.trend) 
-                        }}
+        {error ? (
+          <p className="text-error-red text-sm">{error}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <div
+              style={{ maxHeight: 600, overflowY: "auto" }}
+              className="custom-scrollbar"
+            >
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/10 hover:bg-transparent">
+                    {[
+                      { key: "symbol", label: "Symbol" },
+                      { key: "exchange", label: "Exch" },
+                      { key: "selected_value", label: `Value (${filters.ohlc.toUpperCase()})` },
+                      { key: `prophet_${filters.ohlc}`, label: `Prophet (${filters.ohlc.toUpperCase()})` },
+                      { key: `lgbm_${filters.ohlc}`, label: `LightGBM (${filters.ohlc.toUpperCase()})` },
+                      { key: "trend", label: "Trend" },
+                      { key: "confidence", label: "Confidence" }
+                    ].map(({ key, label }) => (
+                      <TableHead
+                        key={key}
+                        onClick={() => handleSort(key as keyof ScreenerData)}
+                        className="text-neutral-text cursor-pointer select-none"
                       >
-                        {stock.trend}
-                      </Badge>
-                    </TableCell>
-                    <TableCell 
-                      className="font-medium"
-                      style={{ color: getConfidenceColor(stock.confidence) }}
-                    >
-                      {stock.confidence.toFixed(1)}%
-                    </TableCell>
-                    <TableCell 
-                      className="font-medium"
-                      style={{ 
-                        color: isPositiveChange ? 'var(--success-green)' : 'var(--error-red)' 
-                      }}
-                    >
-                      {isPositiveChange ? '+' : ''}₹{stock.change.toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-neutral-text">
-                      {stock.volume}
-                    </TableCell>
+                        {label}{" "}
+                        {sortKey === key && (sortOrder === 'asc' ? "▲" : "▼")}
+                      </TableHead>
+                    ))}
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                </TableHeader>
+                <TableBody>
+                  {sortedData.length > 0 ? (
+                    sortedData.map((stock) => (
+                      <TableRow
+                        key={`${stock.symbol}-${stock.exchange}`}
+                        className="border-white/10 hover:bg-white/5 cursor-pointer transition-colors"
+                      >
+                        <TableCell className="text-white font-semibold">
+                          {stock.symbol}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="border-white/20 text-neutral-text text-xs">
+                            {stock.exchange}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-white font-medium">
+                          ₹{stock.selected_value.toFixed(2)}
+                        </TableCell>
+                        <TableCell
+                          className="font-medium"
+                          style={{ color: 'var(--success-green)' }}
+                        > 
+                          ₹{stock[`prophet_${filters.ohlc}` as keyof ScreenerData] as number}
+                        </TableCell>
+                        <TableCell
+                          className="font-medium"
+                          style={{ color: '#FF9800' }}
+                        >
+                          ₹{stock[`lgbm_${filters.ohlc}` as keyof ScreenerData] as number}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className="text-xs capitalize"
+                            style={{
+                              borderColor: getTrendColor(stock.trend),
+                              color: getTrendColor(stock.trend)
+                            }}
+                          >
+                            {stock.trend}
+                          </Badge>
+                        </TableCell>
+                        <TableCell
+                          className="font-medium"
+                          style={{ color: getConfidenceColor(stock.confidence) }}
+                        >
+                          {stock.confidence.toFixed(1)}%
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell
+                        colSpan={7}
+                        className="text-center text-neutral-text py-4"
+                      >
+                        No data available
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

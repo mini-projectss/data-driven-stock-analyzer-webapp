@@ -7,11 +7,36 @@ import { TrendingUp, TrendingDown } from 'lucide-react';
 
 interface PredictionDataTableProps {
   selectedStock: string;
+  predictionData?: {
+    historical: any[];
+    prophet: any[];
+    lgbm: any[];
+  } | null;
+  timeRange: string;
 }
 
-export function PredictionDataTable({ selectedStock }: PredictionDataTableProps) {
+export function PredictionDataTable({ selectedStock, predictionData, timeRange }: PredictionDataTableProps) {
   const [showFuture, setShowFuture] = useState(true);
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+    if (timeRange === 'hours' || timeRange === 'minutes') {
+      options.hour = '2-digit';
+      options.minute = '2-digit';
+      options.hour12 = false;
+    }
+    return date.toLocaleString('en-US', options);
+  };
+  // Helper for volume formatting
+  const formatVolume = (volume: number) => {
+    if (volume >= 1000000) {
+      return `${(volume / 1000000).toFixed(1)}M`;
+    }
+    return `${(volume / 1000).toFixed(0)}K`;
+  };
+
+  // If no predictionData, fallback to mock data
   const generateHistoricalData = () => {
     const data = [];
     let basePrice = 2800;
@@ -42,7 +67,6 @@ export function PredictionDataTable({ selectedStock }: PredictionDataTableProps)
     
     return data;
   };
-
   const generateFutureData = () => {
     const data = [];
     let basePrice = 2850;
@@ -78,15 +102,50 @@ export function PredictionDataTable({ selectedStock }: PredictionDataTableProps)
     return data;
   };
 
-  const historicalData = generateHistoricalData();
-  const futureData = generateFutureData();
+  // Use backend data if available, else fallback to mock
+  let historicalData: any[] = [];
+  let futureData: any[] = [];
 
-  const formatVolume = (volume: number) => {
-    if (volume >= 1000000) {
-      return `${(volume / 1000000).toFixed(1)}M`;
-    }
-    return `${(volume / 1000).toFixed(0)}K`;
-  };
+  if (predictionData) {
+    // Historical: use last 7 (or all) from predictionData.historical
+    historicalData = (predictionData.historical || []).map(row => ({
+      date: formatDate(row.date),
+      open: row.open,
+      high: row.high,
+      low: row.low,
+      close: row.close,
+      // No volume in backend, so fake it for now
+      volume: Math.floor(Math.random() * 1000000) + 500000,
+      change: row.close - row.open,
+      changePercent: row.open ? ((row.close - row.open) / row.open) * 100 : 0,
+    }));
+
+    // Future: combine prophet and lgbm by date
+    const prophetMap = new Map<string, any>();
+    (predictionData.prophet || []).forEach(row => {
+      prophetMap.set(row.date, row);
+    });
+    futureData = (predictionData.lgbm || []).map(row => {
+      const dateStr = row.date;
+      const prophet = prophetMap.get(dateStr);
+      return {
+        date: formatDate(dateStr),
+        prophetPrice: prophet ? prophet.close : null,
+        prophetHigh: prophet ? prophet.high : null,
+        prophetLow: prophet ? prophet.low : null,
+        lightgbmPrice: row.close,
+        lightgbmHigh: row.high,
+        lightgbmLow: row.low,
+        // Confidence: fake for now, or could be based on model agreement
+        confidence: prophet && row.close
+          ? 80 + Math.max(0, 20 - Math.abs(prophet.close - row.close) / (prophet.close || 1) * 100)
+          : 80,
+      };
+    });
+  } else {
+    historicalData = generateHistoricalData();
+    futureData = generateFutureData();
+  }
 
   return (
     <Card className="glass-card p-6">
@@ -138,16 +197,16 @@ export function PredictionDataTable({ selectedStock }: PredictionDataTableProps)
                       {row.date}
                     </TableCell>
                     <TableCell className="text-neutral-text">
-                      ₹{row.open.toFixed(2)}
+                      ₹{row.open?.toFixed(2)}
                     </TableCell>
                     <TableCell className="text-neutral-text">
-                      ₹{row.high.toFixed(2)}
+                      ₹{row.high?.toFixed(2)}
                     </TableCell>
                     <TableCell className="text-neutral-text">
-                      ₹{row.low.toFixed(2)}
+                      ₹{row.low?.toFixed(2)}
                     </TableCell>
                     <TableCell className="text-white font-semibold">
-                      ₹{row.close.toFixed(2)}
+                      ₹{row.close?.toFixed(2)}
                     </TableCell>
                     <TableCell className="text-neutral-text">
                       {formatVolume(row.volume)}
@@ -165,7 +224,7 @@ export function PredictionDataTable({ selectedStock }: PredictionDataTableProps)
                           <TrendingDown className="w-4 h-4" />
                         )}
                         <span>
-                          {isPositive ? '+' : ''}₹{row.change.toFixed(2)} ({isPositive ? '+' : ''}{row.changePercent.toFixed(2)}%)
+                          {isPositive ? '+' : ''}₹{row.change?.toFixed(2)} ({isPositive ? '+' : ''}{row.changePercent?.toFixed(2)}%)
                         </span>
                       </div>
                     </TableCell>
@@ -200,19 +259,19 @@ export function PredictionDataTable({ selectedStock }: PredictionDataTableProps)
                     className="font-semibold"
                     style={{ color: 'var(--success-green)' }}
                   >
-                    ₹{row.prophetPrice.toFixed(2)}
+                    ₹{row.prophetPrice?.toFixed(2)}
                   </TableCell>
                   <TableCell className="text-neutral-text text-sm">
-                    ₹{row.prophetLow.toFixed(2)} - ₹{row.prophetHigh.toFixed(2)}
+                    ₹{row.prophetLow?.toFixed(2)} - ₹{row.prophetHigh?.toFixed(2)}
                   </TableCell>
                   <TableCell 
                     className="font-semibold"
                     style={{ color: '#FF9800' }}
                   >
-                    ₹{row.lightgbmPrice.toFixed(2)}
+                    ₹{row.lightgbmPrice?.toFixed(2)}
                   </TableCell>
                   <TableCell className="text-neutral-text text-sm">
-                    ₹{row.lightgbmLow.toFixed(2)} - ₹{row.lightgbmHigh.toFixed(2)}
+                    ₹{row.lightgbmLow?.toFixed(2)} - ₹{row.lightgbmHigh?.toFixed(2)}
                   </TableCell>
                   <TableCell>
                     <div 
@@ -222,7 +281,7 @@ export function PredictionDataTable({ selectedStock }: PredictionDataTableProps)
                                row.confidence > 75 ? '#FF9800' : 'var(--error-red)'
                       }}
                     >
-                      {row.confidence.toFixed(1)}%
+                      {row.confidence?.toFixed(1)}%
                     </div>
                   </TableCell>
                 </TableRow>

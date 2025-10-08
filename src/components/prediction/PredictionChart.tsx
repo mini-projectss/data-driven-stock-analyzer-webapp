@@ -1,32 +1,67 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { TrendingUp, TrendingDown, Eye, EyeOff } from 'lucide-react';
 
 interface PredictionChartProps {
   selectedStock: string;
   isAnalyzing: boolean;
+  predictionData?: {
+    historical: any[];
+    prophet: any[];
+    lgbm: any[];
+  };
 }
 
-export function PredictionChart({ selectedStock, isAnalyzing }: PredictionChartProps) {
+export function PredictionChart({ selectedStock, isAnalyzing, predictionData }: PredictionChartProps) {
+  // Value pills state
+  const valuePills: { key: 'open' | 'high' | 'low' | 'close'; label: string }[] = [
+    { key: 'open', label: 'Open' },
+    { key: 'high', label: 'High' },
+    { key: 'low', label: 'Low' },
+    { key: 'close', label: 'Close' }
+  ];
+  const [selectedValueKey, setSelectedValueKey] = useState<'open' | 'high' | 'low' | 'close'>('close');
   const [showHistorical, setShowHistorical] = useState(true);
   const [showProphet, setShowProphet] = useState(true);
   const [showLightGBM, setShowLightGBM] = useState(true);
 
-  // Mock data for demonstration
-  const generateMockData = () => {
+  // Build chart data from backend response if available
+  const chartData = useMemo(() => {
+    if (predictionData && predictionData.historical && predictionData.prophet && predictionData.lgbm) {
+      // Merge all data by date
+      const dataMap: Record<string, any> = {};
+      (predictionData.historical || []).forEach(d => {
+        dataMap[d.date] = {
+          date: d.date,
+          historical: d[selectedValueKey],
+          prophet: null,
+          lightgbm: null,
+          isPrediction: false
+        };
+      });
+      (predictionData.prophet || []).forEach(d => {
+        if (!dataMap[d.date]) dataMap[d.date] = { date: d.date };
+        dataMap[d.date].prophet = d[selectedValueKey];
+        dataMap[d.date].isPrediction = true;
+      });
+      (predictionData.lgbm || []).forEach(d => {
+        if (!dataMap[d.date]) dataMap[d.date] = { date: d.date };
+        dataMap[d.date].lightgbm = d[selectedValueKey];
+        dataMap[d.date].isPrediction = true;
+      });
+      // Sort by date (parse as Date for correct order)
+      return Object.values(dataMap).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }
+    // fallback to mock
     const data = [];
     const basePrice = 2800;
-    
-    // Historical data (past 30 days)
     for (let i = -30; i <= 0; i++) {
       const date = new Date();
       date.setDate(date.getDate() + i);
-      
       const historical = basePrice + (Math.random() - 0.5) * 100 + i * 2;
-      
       data.push({
         date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         historical: Math.round(historical * 100) / 100,
@@ -35,16 +70,12 @@ export function PredictionChart({ selectedStock, isAnalyzing }: PredictionChartP
         isPrediction: false
       });
     }
-    
-    // Future predictions (next 15 days)
     for (let i = 1; i <= 15; i++) {
       const date = new Date();
       date.setDate(date.getDate() + i);
-      
       const lastPrice = data[data.length - 1].historical;
       const prophet = lastPrice + (Math.random() - 0.4) * 50 + i * 1.5;
       const lightgbm = lastPrice + (Math.random() - 0.3) * 40 + i * 1.2;
-      
       data.push({
         date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         historical: null,
@@ -53,17 +84,38 @@ export function PredictionChart({ selectedStock, isAnalyzing }: PredictionChartP
         isPrediction: true
       });
     }
-    
     return data;
-  };
+  }, [predictionData, selectedValueKey]);
 
-  const chartData = generateMockData();
-  const currentPrice = chartData.find(d => !d.isPrediction && d.historical)?.historical || 2850;
-  const prophetPrice = chartData.find(d => d.prophet)?.prophet || 2870;
-  const lightgbmPrice = chartData.find(d => d.lightgbm)?.lightgbm || 2865;
+  // For header stats
+  const currentRow = chartData.find(d => !d.isPrediction && d.historical !== null && d.historical !== undefined);
+  const currentValue = currentRow ? currentRow.historical : 2850;
+  const prophetRow = chartData.find(d => d.prophet !== null && d.prophet !== undefined);
+  const prophetValue = prophetRow ? prophetRow.prophet : 2870;
+  const lightgbmRow = chartData.find(d => d.lightgbm !== null && d.lightgbm !== undefined);
+  const lightgbmValue = lightgbmRow ? lightgbmRow.lightgbm : 2865;
 
   return (
     <Card className="glass-card p-6">
+      {/* Value Pills */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {valuePills.map((pill) => (
+          <Badge
+            key={pill.key}
+            variant={selectedValueKey === pill.key ? "default" : "outline"}
+            className={`cursor-pointer transition-colors ${
+              selectedValueKey === pill.key
+                ? 'bg-accent-teal text-white border-accent-teal'
+                : 'border-white/20 text-neutral-text hover:border-accent-teal hover:text-accent-teal'
+            }`}
+            onClick={() => setSelectedValueKey(pill.key)}
+            style={selectedValueKey === pill.key ? { backgroundColor: 'var(--accent-teal)' } : {}}
+          >
+            {pill.label}
+          </Badge>
+        ))}
+      </div>
+
       {/* Chart Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 space-y-4 lg:space-y-0">
         <div>
@@ -73,24 +125,32 @@ export function PredictionChart({ selectedStock, isAnalyzing }: PredictionChartP
           <div className="flex flex-wrap gap-4 text-sm">
             <div className="flex items-center space-x-2">
               <span className="text-neutral-text/80">Current:</span>
-              <span className="text-white font-semibold">₹{currentPrice.toFixed(2)}</span>
+              <span className="text-white font-semibold">
+                {selectedValueKey === "volume"
+                  ? (currentValue || 0).toLocaleString()
+                  : `₹${(currentValue || 0).toFixed(2)}`}
+              </span>
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-neutral-text/80">Prophet:</span>
               <span 
                 className="font-semibold"
-                style={{ color: prophetPrice > currentPrice ? 'var(--success-green)' : 'var(--error-red)' }}
+                style={{ color: prophetValue > currentValue ? 'var(--success-green)' : 'var(--error-red)' }}
               >
-                ₹{prophetPrice.toFixed(2)}
+                {selectedValueKey === "volume"
+                  ? (prophetValue || 0).toLocaleString()
+                  : `₹${(prophetValue || 0).toFixed(2)}`}
               </span>
             </div>
             <div className="flex items-center space-x-2">
               <span className="text-neutral-text/80">LightGBM:</span>
               <span 
                 className="font-semibold"
-                style={{ color: lightgbmPrice > currentPrice ? 'var(--success-green)' : 'var(--error-red)' }}
+                style={{ color: lightgbmValue > currentValue ? 'var(--success-green)' : 'var(--error-red)' }}
               >
-                ₹{lightgbmPrice.toFixed(2)}
+                {selectedValueKey === "volume"
+                  ? (lightgbmValue || 0).toLocaleString()
+                  : `₹${(lightgbmValue || 0).toFixed(2)}`}
               </span>
             </div>
           </div>
@@ -160,14 +220,60 @@ export function PredictionChart({ selectedStock, isAnalyzing }: PredictionChartP
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(221, 232, 245, 0.1)" />
             <XAxis 
-              dataKey="date" 
+              dataKey="date"
               stroke="rgba(221, 232, 245, 0.6)"
               fontSize={12}
+              tickFormatter={(d) => {
+                // Format ISO date string for axis
+                const dt = new Date(d);
+                if (!isNaN(dt.getTime())) {
+                  // Show time for minutes/hours, date for days
+                  return dt.toLocaleString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  });
+                }
+                return d;
+              }}
             />
             <YAxis 
               stroke="rgba(221, 232, 245, 0.6)"
               fontSize={12}
-              domain={['dataMin - 20', 'dataMax + 20']}
+              domain={['auto', 'auto']}
+            />
+            <Tooltip
+              contentStyle={{
+                background: "rgba(30, 41, 59, 0.95)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "8px",
+                color: "#fff",
+                fontSize: "14px"
+              }}
+              labelStyle={{
+                color: "#aee",
+                fontWeight: 500
+              }}
+              labelFormatter={(d) => {
+                const dt = new Date(d);
+                if (!isNaN(dt.getTime())) {
+                  return dt.toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  });
+                }
+                return d;
+              }}
+              formatter={(value: any, name: string) => [
+                selectedValueKey === "volume"
+                  ? `${Number(value).toLocaleString()}`
+                  : `₹${Number(value).toFixed(2)}`,
+                name.charAt(0).toUpperCase() + name.slice(1)
+              ]}
             />
             <Legend />
             
