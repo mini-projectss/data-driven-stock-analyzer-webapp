@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
 import { DashboardSidebar } from '../components/dashboard/DashboardSidebar';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
@@ -61,53 +61,55 @@ export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) 
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleAnalyze = async (symbolOverride?: string) => {
-    const symbol = symbolOverride || searchQuery.trim();
-    if (!symbol) return;
-
-    setIsAnalyzing(true);
-    setAnalysisProgress(0);
-    setErrorMsg(null);
-    setSelectedStock(symbol.toUpperCase());
-    setPredictionData(null);
-
-    // Simulate progress bar
-    let progress = 0;
-    const progressInterval = setInterval(() => {
-      progress += 10;
-      setAnalysisProgress(progress);
-      if (progress >= 90) clearInterval(progressInterval);
-    }, 300);
-
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/prediction/analyze?ticker=${encodeURIComponent(symbol.toUpperCase())}&exchange=${exchange.toUpperCase()}&time_range=${timeRange}`
-      );
-      if (!res.ok) {
-        // Try to parse error from backend
-        let errJson = null;
-        try { errJson = await res.json(); } catch {}
-        if (errJson && errJson.error === "ticker_not_found") {
-          setErrorMsg("Stock not found. Please check the symbol.");
-        } else {
-          setErrorMsg("Prediction failed. Please try another symbol.");
+  const handleAnalyze = useCallback(async (symbolOverride?: string) => {
+      const symbol = (symbolOverride || searchQuery.trim()).toUpperCase();
+      if (!symbol) return;
+  
+      setIsAnalyzing(true);
+      setAnalysisProgress(0);
+      setErrorMsg(null);
+      setSelectedStock(symbol);
+      setPredictionData(null);
+  
+      // Simulate progress bar
+      let progress = 0;
+      const progressInterval = setInterval(() => {
+        progress += 10;
+        if (progress < 90) {
+            setAnalysisProgress(progress);
         }
+      }, 300);
+  
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/prediction/analyze?ticker=${encodeURIComponent(symbol)}&exchange=${exchange.toUpperCase()}&time_range=${timeRange}`
+        );
+        if (!res.ok) {
+          // Try to parse error from backend
+          let errJson = null;
+          try { errJson = await res.json(); } catch {}
+          if (errJson && errJson.error === "ticker_not_found") {
+            setErrorMsg("Stock not found. Please check the symbol.");
+          } else {
+            setErrorMsg(`Prediction failed. ${errJson?.details?.error || ''}`);
+          }
+          setPredictionData(null);
+          setAnalysisProgress(0);
+          return;
+        }
+        const json = await res.json();
+        setPredictionData(json);
+        setAnalysisProgress(100);
+        setErrorMsg(null);
+      } catch (err) {
         setPredictionData(null);
         setAnalysisProgress(0);
-        return;
+        setErrorMsg("Prediction failed. Please try again.");
+      } finally {
+        clearInterval(progressInterval);
+        setIsAnalyzing(false);
       }
-      const json = await res.json();
-      setPredictionData(json);
-      setAnalysisProgress(100);
-      setErrorMsg(null);
-    } catch (err) {
-      setPredictionData(null);
-      setAnalysisProgress(0);
-      setErrorMsg("Prediction failed. Please try again.");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
+    }, [searchQuery, exchange, timeRange, API_BASE]);
 
   const getProgressText = () => {
     if (analysisProgress < 30) return 'Fetching historical data...';
@@ -193,7 +195,7 @@ export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) 
     setSearchQuery(sym);
     setShowSuggestions(false);
     setHighlightedIdx(-1);
-    setErrorMsg(null);
+    setErrorMsg(null); // Clear error on selection
     setTimeout(() => setJustSelected(false), 300);
     setTimeout(() => handleAnalyze(sym), 0);
   }
@@ -405,7 +407,7 @@ export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) 
               </Select>
 
               <Button 
-                onClick={handleAnalyze}
+                onClick={() => handleAnalyze()}
                 disabled={isAnalyzing || !searchQuery.trim()}
                 className="bg-accent-teal hover:bg-accent-teal/90 text-white"
                 style={{ backgroundColor: 'var(--accent-teal)' }}
@@ -466,7 +468,11 @@ export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) 
                 
                 {/* Data Table */}
                 <div className="lg:col-span-2">
-                  <PredictionDataTable selectedStock={selectedStock} predictionData={predictionData} />
+                  <PredictionDataTable 
+                    selectedStock={selectedStock} 
+                    predictionData={predictionData}
+                    timeRange={timeRange}
+                  />
                 </div>
               </div>
             </TabsContent>

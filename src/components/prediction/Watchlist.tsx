@@ -10,7 +10,6 @@ import { toast } from 'sonner';
 
 import { auth, db } from '../../firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { collection, onSnapshot, QuerySnapshot, DocumentData } from 'firebase/firestore';
 
 function getApiBase(): string {
   const vite = (import.meta as any)?.env?.VITE_API_BASE;
@@ -52,8 +51,8 @@ export function Watchlist() {
   const [sortKey, setSortKey] = useState<keyof ScreenerData | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
-  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([]);
 
   const API_BASE = getApiBase();
 
@@ -62,8 +61,8 @@ export function Watchlist() {
     const unsub = onAuthStateChanged(auth, (user) => {
       setUser(user);
       if (!user) {
-        setWatchlistSymbols([]);
         setData([]);
+        setIsLoading(false);
         setError("Please log in to view your watchlist predictions.");
       }
     });
@@ -71,70 +70,56 @@ export function Watchlist() {
   }, []);
 
   // Firestore watchlist subscription
-  useEffect(() => {
-    if (!user) return;
-
-    const colRef = collection(db, 'users', user.uid, 'watchlist', 'default', 'items');
-    const unsub = onSnapshot(
-      colRef,
-      (snap: QuerySnapshot<DocumentData>) => {
-        const symbols: string[] = [];
-        snap.forEach(docSnap => {
-          symbols.push(docSnap.data().symbol);
-        });
-        setWatchlistSymbols(symbols);
-      },
-      (err) => {
-        console.error('Watchlist fetch error', err);
-        toast.error('Failed to load your watchlist symbols.');
-        setError('Failed to load your watchlist symbols.');
-      }
-    );
-    return () => unsub();
-  }, [user]);
-
-  async function fetchData() {
-    if (!user || watchlistSymbols.length === 0) {
+  async function fetchPredictionData() {
+    if (!user) {
       setData([]);
-      if (user && watchlistSymbols.length === 0) {
-        setError("Your watchlist is empty. Add stocks to see predictions.");
-      }
+      setIsLoading(false);
+      setError("Please log in to view your watchlist predictions.");
       return;
     }
-
     try {
-      setError("");
+      setIsLoading(true);
+      setError(""); // Clear previous errors before fetching
       const params = new URLSearchParams({
         date: filters.date,
         trend: filters.trend,
-        ohlc: filters.ohlc
+        ohlc: filters.ohlc,
       });
+      const token = await user.getIdToken();
       const url = `${API_BASE}/api/watchlist/predictions?${params}`;
       const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(watchlistSymbols)
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
+
       const json = await res.json();
       if (!json || json.error || !json.items) {
         setError(json?.error || "No prediction data available for your watchlist");
-        setData([]);
+        setData([]); // Clear data on error
       } else {
-        setData(json.items || []);
+        setData(json.items ?? []);
+      }
+      if ((json.items ?? []).length === 0) {
+        setError("Your watchlist is empty. Add stocks to see predictions.");
       }
     } catch (e) {
       setError("Failed to fetch prediction data");
       setData([]);
+    } finally {
+      setIsLoading(false);
     }
   }
-
+  
   useEffect(() => {
-    fetchData();
-  }, [filters.date, filters.trend, filters.ohlc, watchlistSymbols, user]);
+    fetchPredictionData();
+    // Re-fetch when user logs in/out or when filters change
+  }, [user, filters.date, filters.trend, filters.ohlc]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    fetchData().finally(() => setIsRefreshing(false));
+    // Re-fetch using the currently known symbols
+    fetchPredictionData().finally(() => setIsRefreshing(false));
   };
 
   function handleSort(key: keyof ScreenerData) {
@@ -279,7 +264,7 @@ export function Watchlist() {
                   {sortedData.length > 0 ? (
                     sortedData.map((stock) => (
                       <TableRow
-                        key={stock.symbol}
+                        key={`${stock.symbol}-${stock.exchange}`}
                         className="border-white/10 hover:bg-white/5 cursor-pointer transition-colors"
                       >
                         <TableCell className="text-white font-semibold">
@@ -331,8 +316,8 @@ export function Watchlist() {
                         colSpan={7}
                         className="text-center text-neutral-text py-4"
                       >
-                        {user ? "Loading predictions for your watchlist..." : "Please log in."}
-                      </TableCell>
+                      {isLoading ? "Loading predictions..." : error}
+                      </TableCell> 
                     </TableRow>
                   )}
                 </TableBody>

@@ -108,7 +108,14 @@ export function PoliticalTradingPage({ onNavigate, onStockSelect }: PoliticalTra
   const summaryStats = useMemo(() => {
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-    const weekly = trades.filter(t => new Date(t.transactionDate) >= oneWeekAgo);
+    oneWeekAgo.setHours(0, 0, 0, 0); // Set to the beginning of the day
+
+    const weekly = trades.filter(t => {
+      // Robustly parse YYYY-MM-DD to avoid timezone issues.
+      const parts = t.transactionDate.split('-').map(p => parseInt(p, 10));
+      const tradeDate = new Date(parts[0], parts[1] - 1, parts[2]);
+      return tradeDate >= oneWeekAgo;
+    });
     const buys = weekly.filter(t => t.action === 'BUY');
     const sells = weekly.filter(t => t.action === 'SELL');
     const totalBuyValue = buys.reduce((s, t) => s + (t.value || 0), 0);

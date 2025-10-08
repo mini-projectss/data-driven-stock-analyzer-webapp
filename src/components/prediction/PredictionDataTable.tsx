@@ -12,11 +12,22 @@ interface PredictionDataTableProps {
     prophet: any[];
     lgbm: any[];
   } | null;
+  timeRange: string;
 }
 
-export function PredictionDataTable({ selectedStock, predictionData }: PredictionDataTableProps) {
+export function PredictionDataTable({ selectedStock, predictionData, timeRange }: PredictionDataTableProps) {
   const [showFuture, setShowFuture] = useState(true);
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+    if (timeRange === 'hours' || timeRange === 'minutes') {
+      options.hour = '2-digit';
+      options.minute = '2-digit';
+      options.hour12 = false;
+    }
+    return date.toLocaleString('en-US', options);
+  };
   // Helper for volume formatting
   const formatVolume = (volume: number) => {
     if (volume >= 1000000) {
@@ -98,7 +109,7 @@ export function PredictionDataTable({ selectedStock, predictionData }: Predictio
   if (predictionData) {
     // Historical: use last 7 (or all) from predictionData.historical
     historicalData = (predictionData.historical || []).map(row => ({
-      date: new Date(row.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      date: formatDate(row.date),
       open: row.open,
       high: row.high,
       low: row.low,
@@ -118,7 +129,7 @@ export function PredictionDataTable({ selectedStock, predictionData }: Predictio
       const dateStr = row.date;
       const prophet = prophetMap.get(dateStr);
       return {
-        date: new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        date: formatDate(dateStr),
         prophetPrice: prophet ? prophet.close : null,
         prophetHigh: prophet ? prophet.high : null,
         prophetLow: prophet ? prophet.low : null,

@@ -238,7 +238,7 @@ export function MarketScreener() {
                   {sortedData.length > 0 ? (
                     sortedData.map((stock) => (
                       <TableRow
-                        key={stock.symbol}
+                        key={`${stock.symbol}-${stock.exchange}`}
                         className="border-white/10 hover:bg-white/5 cursor-pointer transition-colors"
                       >
                         <TableCell className="text-white font-semibold">
