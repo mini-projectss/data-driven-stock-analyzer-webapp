@@ -60,7 +60,7 @@ export function TrendsTable({ ticker, data }: TrendsTableProps) {
   };
 
   return (
-    <Card className="glass-card p-6">
+    <Card className="glass-card p-6 rounded-lg">
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h3 className="text-lg text-white font-semibold">
@@ -92,75 +92,90 @@ export function TrendsTable({ ticker, data }: TrendsTableProps) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-white/10 hover:bg-transparent">
-                  <TableHead className="text-neutral-text w-16">Sr No.</TableHead>
-                  <TableHead className="text-neutral-text">
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleSort('date')}
-                      className="text-neutral-text hover:text-white hover:bg-white/10 p-0 h-auto font-normal"
-                    >
-                      Date
-                      <ArrowUpDown className="ml-2 h-4 w-4" />
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-neutral-text text-right">
-                    <Button
-                      variant="ghost"
-                      onClick={() => handleSort('interest')}
-                      className="text-neutral-text hover:text-white hover:bg-white/10 p-0 h-auto font-normal"
-                    >
-                      Interest Index
-                      <ArrowUpDown className="ml-2 h-4 w-4" />
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-neutral-text">Level</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sortedData.map((row, index) => (
-                  <TableRow 
-                    key={index} 
-                    className={`border-white/10 hover:bg-white/5 ${
-                      index % 2 === 0 ? 'bg-white/5' : 'bg-transparent'
-                    }`}
-                  >
-                    <TableCell className="text-neutral-text/80 font-mono">
-                      {String(index + 1).padStart(2, '0')}
-                    </TableCell>
-                    <TableCell className="text-white font-medium">
-                      {new Date(row.date).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric'
-                      })}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span 
-                        className="font-semibold"
-                        style={{ color: getInterestColor(row.interest) }}
+            {/* make table container rounded to match card look */}
+            <div className="rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-white/10 hover:bg-transparent">
+                    <TableHead className="text-neutral-text w-16">Sr No.</TableHead>
+                    <TableHead className="text-neutral-text">
+                      <Button
+                        variant="ghost"
+                        onClick={() => handleSort('date')}
+                        className="text-neutral-text hover:text-white hover:bg-white/10 p-0 h-auto font-normal"
                       >
-                        {row.interest}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant="outline" 
-                        className="text-xs"
-                        style={{ 
-                          borderColor: getInterestColor(row.interest), 
-                          color: getInterestColor(row.interest) 
-                        }}
+                        Date
+                        <span className="ml-2 opacity-60 text-xs">↕</span>
+                      </Button>
+                    </TableHead>
+                    <TableHead className="text-neutral-text text-right">
+                      <Button
+                        variant="ghost"
+                        onClick={() => handleSort('interest')}
+                        className="text-neutral-text hover:text-white hover:bg-white/10 p-0 h-auto font-normal"
                       >
-                        {getInterestLabel(row.interest)}
-                      </Badge>
-                    </TableCell>
+                        Interest Index
+                        <span className="ml-2 opacity-60 text-xs">↕</span>
+                      </Button>
+                    </TableHead>
+                    <TableHead className="text-neutral-text">Level</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {sortedData.map((row, index) => (
+                    <TableRow 
+                      key={index} 
+                      className={`border-white/10 hover:bg-white/5 ${
+                        index % 2 === 0 ? 'bg-white/5' : 'bg-transparent'
+                      }`}
+                    >
+                      <TableCell className="text-neutral-text/80 font-mono">
+                        {String(index + 1).padStart(2, '0')}
+                      </TableCell>
+                      <TableCell className="text-white font-medium">
+                        {new Date(row.date).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        })}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex flex-col items-end">
+                          <span 
+                            className="font-semibold"
+                            style={{ color: getInterestColor(row.interest) }}
+                          >
+                            {row.interest}
+                          </span>
+                          <div className="w-28 h-3 rounded-full bg-white/10 mt-2 overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${Math.max(2, row.interest)}%`,
+                                background: getInterestColor(row.interest),
+                                boxShadow: '0 6px 14px rgba(0,0,0,0.35)'
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant="outline" 
+                          className="text-xs"
+                          style={{ 
+                            borderColor: getInterestColor(row.interest), 
+                            color: getInterestColor(row.interest) 
+                          }}
+                        >
+                          {getInterestLabel(row.interest)}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         )}
       </div>

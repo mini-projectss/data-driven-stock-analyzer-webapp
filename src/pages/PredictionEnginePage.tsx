@@ -434,7 +434,7 @@ export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) 
 
         <main className="flex-1 p-6 overflow-auto">
           <Tabs defaultValue="analyze" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3 bg-white/10 max-w-md">
+            <TabsList className="grid w-full grid-cols-2 bg-white/10 max-w-md">
               <TabsTrigger 
                 value="analyze" 
                 className="data-[state=active]:bg-accent-teal data-[state=active]:text-white"
@@ -447,12 +447,7 @@ export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) 
               >
                 Market Screener
               </TabsTrigger>
-              <TabsTrigger 
-                value="watchlist" 
-                className="data-[state=active]:bg-accent-teal data-[state=active]:text-white"
-              >
-                Watchlist
-              </TabsTrigger>
+            
             </TabsList>
 
             <TabsContent value="analyze" className="space-y-6">
@@ -479,10 +474,6 @@ export function PredictionEnginePage({ onNavigate }: PredictionEnginePageProps) 
 
             <TabsContent value="screener">
               <MarketScreener />
-            </TabsContent>
-
-            <TabsContent value="watchlist">
-              <Watchlist />
             </TabsContent>
           </Tabs>
         </main>

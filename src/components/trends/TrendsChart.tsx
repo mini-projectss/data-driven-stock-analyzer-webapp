@@ -48,9 +48,12 @@ export function TrendsChart({ ticker, data, isLoading }: TrendsChartProps) {
 
   if (isLoading) {
     return (
-      <Card className="glass-card p-6">
+      <Card className="glass-card p-6 rounded-lg">
         <div className="text-center py-16">
-          <div className="w-8 h-8 border-2 border-accent-teal border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div
+            className="w-8 h-8 border-2 border-accent-teal border-t-transparent rounded-full animate-spin mx-auto mb-4"
+            style={{ borderColor: 'var(--accent-teal)' }}
+          ></div>
           <p className="text-white">Fetching Google Trends data...</p>
           <p className="text-neutral-text/80 text-sm mt-2">
             Analyzing search interest for {ticker}
@@ -61,7 +64,7 @@ export function TrendsChart({ ticker, data, isLoading }: TrendsChartProps) {
   }
 
   return (
-    <Card className="glass-card p-6">
+    <Card className="glass-card p-6 rounded-lg">
       <div className="space-y-6">
         {/* Chart Header */}
         <div className="flex items-center justify-between">
