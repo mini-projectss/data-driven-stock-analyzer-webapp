@@ -118,11 +118,19 @@ export function TradesList({ trades, onStockClick }: TradesListProps) {
                     {getInitials(trade.personName)}
                   </AvatarFallback>
                 </Avatar>
+                
+                {/* --- MODIFICATION START --- */}
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-white font-semibold truncate" title={trade.personName}>
+                  {/* Name is separate, allows it to wrap */}
+                  <h3 className="text-white font-semibold" title={trade.personName}>
                     {trade.personName}
                   </h3>
-                  <div className="flex items-center space-x-2 mt-1">
+                  
+                  {/* Badges container: uses flex-wrap and gap-2
+                      - mt-2 creates gap between name and badges
+                      - gap-2 creates horizontal and vertical gap between badges
+                  */}
+                  <div className="flex flex-wrap gap-2 mt-2">
                     <Badge
                       variant="outline"
                       className="text-xs"
@@ -147,6 +155,8 @@ export function TradesList({ trades, onStockClick }: TradesListProps) {
                     </Badge>
                   </div>
                 </div>
+                {/* --- MODIFICATION END --- */}
+
               </div>
             </div>
 
